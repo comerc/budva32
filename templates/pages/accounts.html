@@ -1,0 +1,16 @@
+{{ template "head" . }}
+{{ template "menu" . }}
+<div class="container">
+    <div class="row">
+        <div class="col-md-12">
+        {{ if .Accounts }}
+        {{ range $i, $acc := $.Accounts }}
+            <p>{{ $i }}. {{ $acc }} <a href="/accounts/{{ $acc }}" class="btn btn-sm btn-outline-primary">Chats</a></p>
+        {{ end }}
+        {{ else }}
+            <p>No accounts available.</p>
+        {{ end }}
+        </div>
+    </div>
+</div>
+{{ template "footer" . }}

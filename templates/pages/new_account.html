@@ -1,0 +1,41 @@
+{{ template "head" . }}
+{{ template "menu" . }}
+<div class="container">
+    <div class="row">
+        <div class="col-md-12">
+        {{ if not .Data }}
+            <label for="name">Please, enter a name for new telegram account so you'll remember it</label>
+            <form action="/new-account/" class="form-inline" method="POST">
+                <input type="text" name="name" class="form-control" placeholder="Account name">
+                <input type="submit" value="Send" class="btn btn-outline-primary">
+            </form>
+        {{ end }}
+
+        {{ if .Phone }}
+            <label for="phone">{{ .Data }}</label>
+            <form action="/new-account/{{ .Name }}" class="form-inline" method="POST">
+                <input type="text" name="phone" class="form-control" placeholder="71231234455">
+                <input type="submit" value="Send" class="btn btn-outline-primary">
+                <a href="/new-account/{{ .Name }}" class="btn btn-outline-primary">I've already sent it</a>
+            </form>
+        {{ end }}
+        {{ if .Code }}
+            <label for="code">{{ .Data }}</label>
+            <form action="/new-account/{{ .Name }}" class="form-inline" method="POST">
+                <input type="text" name="code" class="form-control" placeholder="01234">
+                <input type="submit" value="Send" class="btn btn-outline-primary">
+                <a href="/new-account/{{ .Name }}" class="btn btn-outline-primary">I've already sent it</a>
+            </form>
+        {{ end }}
+        {{ if .Password }}
+            <label for="password">{{ .Data }}</label>
+            <form action="/new-account/{{ .Name }}" class="form-inline" method="POST">
+                <input type="password" name="password" class="form-control" placeholder="********">
+                <input type="submit" value="Send" class="btn btn-outline-primary">
+                <a href="/new-account/{{ .Name }}" class="btn btn-outline-primary">I've already sent it</a>
+            </form>
+        {{ end }}
+        </div>
+    </div>
+</div>
+{{ template "footer" . }}

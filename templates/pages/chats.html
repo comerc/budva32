@@ -1,0 +1,26 @@
+{{ template "head" . }}
+{{ template "menu" . }}
+<div class="container">
+    <div class="col-md-12 form-group">
+    {{ if .Chats }}
+    {{ range $i, $c := $.Chats }}
+        <div class="row">
+            <div class="col-md-1">
+            <p>{{ $i }}</p>
+            </div>
+            <div class="col-md-3">
+                <p>{{ $c.title }}</p>
+            </div>
+            <div class="col-md-2">
+                <p>{{ $c.id }}</p>
+            </div>
+            <div class="col-md-6">
+                <p>{{ $c.lastmsg }}</p>
+            </div>
+        </div>
+    {{ end }}
+    {{ end }}
+
+    </div>
+</div>
+{{ template "footer" . }}
