@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"time"
 
 	"github.com/Arman92/go-tdlib"
 )
@@ -66,11 +67,13 @@ func MessageFilter(msg *tdlib.TdMessage) bool {
 }
 
 func NewMessageHandle(newMsg interface{}, acc TdInstance) {
-	var options *tdlib.MessageSendOptions
-	state := tdlib.NewMessageSchedulingStateSendWhenOnline()
-	options = tdlib.NewMessageSendOptions(false, false, state)
+	state := tdlib.NewMessageSchedulingStateSendAtDate(int32(time.Now().Unix()))
+	options := tdlib.NewMessageSendOptions(false, false, state)
 	updateMsg := (newMsg).(*tdlib.UpdateNewMessage)
-	c, _ := acc.TdlibClient.GetMe()
+	c, err := acc.TdlibClient.GetMe()
+	if err != nil {
+		fmt.Println(err)
+	}
 	for _, con := range Configs {
 		if con.Account == string(c.PhoneNumber) {
 			forwards := con.Forwards
@@ -78,12 +81,15 @@ func NewMessageHandle(newMsg interface{}, acc TdInstance) {
 				if updateMsg.Message.ChatID == forward.From {
 					fmt.Println(c.PhoneNumber, "- Message ", updateMsg.Message.ID, " forwarded from ", updateMsg.Message.ChatID)
 					for _, to := range forward.To {
-						acc.TdlibClient.ForwardMessages(to,
+						_, err := acc.TdlibClient.ForwardMessages(to,
 							forward.From,
 							[]int64{updateMsg.Message.ID},
 							options,
 							true,
 							false)
+						if err != nil {
+							fmt.Println(err)
+						}
 					}
 				}
 			}

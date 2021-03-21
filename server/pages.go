@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -219,7 +220,7 @@ func addAccount(w http.ResponseWriter, r *http.Request, name string) {
 			}
 			// Handle Ctrl+C
 			CtrlCChan := make(chan os.Signal, 2)
-			signal.Notify(CtrlCChan, os.Interrupt)
+			signal.Notify(CtrlCChan, os.Interrupt, syscall.SIGTERM)
 			go func(ac *accounts.TdInstance) {
 				<-CtrlCChan
 				ac.TdlibClient.DestroyInstance()

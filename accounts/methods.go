@@ -5,20 +5,27 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/Arman92/go-tdlib"
 	"io"
 	"log"
 	"os"
 	"os/signal"
+	"syscall"
+
+	"github.com/Arman92/go-tdlib"
+	"github.com/joho/godotenv"
 )
 
 var TdInstances []TdInstance
 var Configs []AccountConfig
 
 func SetUpClient(tdInstance *TdInstance) *tdlib.Client {
+	err := godotenv.Load(".env")
+	if err != nil {
+		log.Println("Error loading .env file")
+	}
 	return tdlib.NewClient(tdlib.Config{
-		APIID:               "228834",
-		APIHash:             "e4d4a67594f3ddadacab55ab48a6187a",
+		APIID:               os.Getenv("BUDVA32_API_ID"),
+		APIHash:             os.Getenv("BUDVA32_API_HASH"),
 		SystemLanguageCode:  "en",
 		DeviceModel:         "Server",
 		SystemVersion:       "1.0.0",
@@ -127,7 +134,7 @@ func AddAccountCLI() error {
 	}
 	// Handle Ctrl+C
 	CtrlCChan := make(chan os.Signal, 2)
-	signal.Notify(CtrlCChan, os.Interrupt)
+	signal.Notify(CtrlCChan, os.Interrupt, syscall.SIGTERM)
 	go func(ac TdInstance) {
 		<-CtrlCChan
 		ac.TdlibClient.DestroyInstance()
@@ -212,6 +219,8 @@ func GetAccounts() []string {
 func CreateUpdateChannel(client *tdlib.Client) {
 	rawUpdates := client.GetRawUpdatesChannel(100)
 	for update := range rawUpdates {
+		// TODO: remove fmt.Println
+		fmt.Println("update", update)
 		_ = update
 	}
 }

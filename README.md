@@ -7,8 +7,8 @@ These instructions will get you a copy of the project up and running on your loc
 What things you need to install the software and how to install them
 
 ```commandline
-docker build -t marperia/budva32:latest .
-docker run -it -p 9000:9000 --name budva32 marperia/budva32:latest
+docker build -t comerc/budva32:latest .
+docker run -it -p 9000:9000 --name budva32 comerc/budva32:latest
 ```
 
 A step by step series of examples that tell you how to get a development env running
@@ -60,3 +60,15 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Hat tip to anyone whose code was used
 - Inspiration
 - etc
+
+Fork from https://github.com/marperia/fwdbot
+
+## How to install tdlib
+
+For Ubuntu 18.04
+
+```
+$ sudo apt-get install build-essential gperf ccache zlib1g-dev libssl-dev libreadline-dev
+```
+
+Or use [TDLib build instructions](https://tdlib.github.io/td/build.html)

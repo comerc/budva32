@@ -1,0 +1,4 @@
+github.com/Arman92/go-tdlib v0.0.0-20210308102204-0e8c2db02b5b h1:DxWsOyMIAfl5uoL94lAoDbnK3KixqLw5z+L4057b4AA=
+github.com/Arman92/go-tdlib v0.0.0-20210308102204-0e8c2db02b5b/go.mod h1:ZzkRfuaFj8etIYMj/ECtXtgfz72RE6U+dos27b3XIwk=
+github.com/joho/godotenv v1.3.0 h1:Zjp+RcGpHhGlrMbJzXTrZZPrWj+1vfm90La1wgB6Bhc=
+github.com/joho/godotenv v1.3.0/go.mod h1:7hK45KPybAkOC6peb+G5yklZfMxEjkZhHbwpqxOKXbg=

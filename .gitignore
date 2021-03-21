@@ -3,3 +3,4 @@ tddata/
 accounts.json
 config.json
 errors.txt
+.env
