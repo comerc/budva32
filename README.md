@@ -82,9 +82,21 @@ func NewClient(config Config) *Client {
   // ...
 	go func() {
 		for !IsClosed {
+      // get update
+      updateBytes := client.Receive(10)
       // ...
     }
   }()
   // ...
 }
 ```
+
+usage:
+
+```go
+  tdlib.IsClosed = true
+  time.Sleep(1 * time.Second)
+  client.DestroyInstance()
+```
+
+See [issue](https://github.com/tdlib/td/issues/1455)
