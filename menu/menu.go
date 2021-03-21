@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/Arman92/go-tdlib"
 	"github.com/comerc/budva32/accounts"
 	"github.com/comerc/budva32/app"
 	"github.com/comerc/budva32/server"
@@ -66,6 +68,8 @@ func CallMenu() {
 	case "s":
 		app.Start()
 	case "t":
+		tdlib.IsClosed = true
+		time.Sleep(1 * time.Second)
 		for i := range accounts.TdInstances {
 			accounts.TdInstances[i].TdlibClient.DestroyInstance()
 		}
@@ -73,6 +77,8 @@ func CallMenu() {
 		fmt.Println("Reading new config")
 		accounts.ReadConfigFile()
 	case "e":
+		tdlib.IsClosed = true
+		time.Sleep(1 * time.Second)
 		for i := range accounts.TdInstances {
 			accounts.TdInstances[i].TdlibClient.DestroyInstance()
 		}

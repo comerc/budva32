@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/Arman92/go-tdlib"
 	"github.com/joho/godotenv"
@@ -137,6 +138,8 @@ func AddAccountCLI() error {
 	signal.Notify(CtrlCChan, os.Interrupt, syscall.SIGTERM)
 	go func(ac TdInstance) {
 		<-CtrlCChan
+		tdlib.IsClosed = true
+		time.Sleep(1 * time.Second)
 		ac.TdlibClient.DestroyInstance()
 		os.Exit(0)
 	}(account)
@@ -219,8 +222,6 @@ func GetAccounts() []string {
 func CreateUpdateChannel(client *tdlib.Client) {
 	rawUpdates := client.GetRawUpdatesChannel(100)
 	for update := range rawUpdates {
-		// TODO: remove fmt.Println
-		fmt.Println("update", update)
 		_ = update
 	}
 }

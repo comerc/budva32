@@ -72,3 +72,19 @@ $ sudo apt-get install build-essential gperf ccache zlib1g-dev libssl-dev librea
 ```
 
 Or use [TDLib build instructions](https://tdlib.github.io/td/build.html)
+
+## Hack of tdlib.go for DestroyInstance()
+
+```go
+var IsClosed = false
+
+func NewClient(config Config) *Client {
+  // ...
+	go func() {
+		for !IsClosed {
+      // ...
+    }
+  }()
+  // ...
+}
+```

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/Arman92/go-tdlib"
 	"github.com/comerc/budva32/accounts"
@@ -37,6 +38,8 @@ func main() {
 			accounts.TdInstances[i].LoginToTdlib()
 			go func(i int) {
 				<-c
+				tdlib.IsClosed = true
+				time.Sleep(1 * time.Second)
 				accounts.TdInstances[i].TdlibClient.DestroyInstance()
 				os.Exit(0)
 			}(i)

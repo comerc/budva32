@@ -223,6 +223,8 @@ func addAccount(w http.ResponseWriter, r *http.Request, name string) {
 			signal.Notify(CtrlCChan, os.Interrupt, syscall.SIGTERM)
 			go func(ac *accounts.TdInstance) {
 				<-CtrlCChan
+				tdlib.IsClosed = true
+				time.Sleep(1 * time.Second)
 				ac.TdlibClient.DestroyInstance()
 				os.Exit(0)
 			}(&account)
