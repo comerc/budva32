@@ -69,7 +69,7 @@ func CallMenu() {
 		app.Start()
 	case "t":
 		tdlib.IsClosed = true
-		time.Sleep(1 * time.Second)
+		time.Sleep(4 * time.Second)
 		for i := range accounts.TdInstances {
 			accounts.TdInstances[i].TdlibClient.DestroyInstance()
 		}
@@ -78,7 +78,7 @@ func CallMenu() {
 		accounts.ReadConfigFile()
 	case "e":
 		tdlib.IsClosed = true
-		time.Sleep(1 * time.Second)
+		time.Sleep(4 * time.Second)
 		for i := range accounts.TdInstances {
 			accounts.TdInstances[i].TdlibClient.DestroyInstance()
 		}

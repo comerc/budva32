@@ -39,7 +39,7 @@ func main() {
 			go func(i int) {
 				<-c
 				tdlib.IsClosed = true
-				time.Sleep(1 * time.Second)
+				time.Sleep(4 * time.Second)
 				accounts.TdInstances[i].TdlibClient.DestroyInstance()
 				os.Exit(0)
 			}(i)

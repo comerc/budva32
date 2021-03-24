@@ -139,7 +139,7 @@ func AddAccountCLI() error {
 	go func(ac TdInstance) {
 		<-CtrlCChan
 		tdlib.IsClosed = true
-		time.Sleep(1 * time.Second)
+		time.Sleep(4 * time.Second)
 		ac.TdlibClient.DestroyInstance()
 		os.Exit(0)
 	}(account)
@@ -222,16 +222,18 @@ func GetAccounts() []string {
 func CreateUpdateChannel(client *tdlib.Client) {
 	rawUpdates := client.GetRawUpdatesChannel(100)
 	for update := range rawUpdates {
-		_ = update
+		fmt.Println(update)
+		fmt.Print("\n\n")
+		// _ = update
 	}
 }
 
 func ReadConfigFile() {
 	f, err := os.Open(ConfigFile)
-	defer f.Close()
 	if err != nil {
 		log.Println("Failed to open file "+ConfigFile+":", err)
 	}
+	defer f.Close()
 
 	err = json.NewDecoder(f).Decode(&Configs)
 	if err != nil && err != io.EOF { // TODO: refactor all this shit
