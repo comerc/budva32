@@ -1,14 +1,14 @@
 package accounts
 
-import "github.com/Arman92/go-tdlib"
+import "github.com/zelenin/go-tdlib/client"
 
 const AccountsFile = "accounts.json"
 
 type TdInstance struct {
-	AccountName         string        `json:"AccountName"`
-	TdlibDbDirectory    string        `json:"TdlibDbDirectory"`
-	TdlibFilesDirectory string        `json:"TdlibFilesDirectory"`
-	TdlibClient         *tdlib.Client `json:"-"`
+	AccountName         string         `json:"AccountName"`
+	TdlibDbDirectory    string         `json:"TdlibDbDirectory"`
+	TdlibFilesDirectory string         `json:"TdlibFilesDirectory"`
+	TdlibClient         *client.Client `json:"-"`
 }
 
 const ConfigFile = "config.json"

@@ -61,7 +61,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Inspiration
 - etc
 
-Fork from https://github.com/marperia/fwdbot
+Inspired by https://github.com/marperia/fwdbot
 
 ## How to install tdlib
 
@@ -72,31 +72,3 @@ $ sudo apt-get install build-essential gperf ccache zlib1g-dev libssl-dev librea
 ```
 
 Or use [TDLib build instructions](https://tdlib.github.io/td/build.html)
-
-## Hack of tdlib.go for DestroyInstance()
-
-```go
-var IsClosed = false
-
-func NewClient(config Config) *Client {
-  // ...
-	go func() {
-		for !IsClosed {
-      // get update
-      updateBytes := client.Receive(10)
-      // ...
-    }
-  }()
-  // ...
-}
-```
-
-usage:
-
-```go
-  tdlib.IsClosed = true
-  time.Sleep(1 * time.Second)
-  client.DestroyInstance()
-```
-
-See [issue](https://github.com/tdlib/td/issues/1455)
