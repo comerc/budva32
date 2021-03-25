@@ -127,4 +127,20 @@ func getMessageLink(tdlibClient *client.Client, ChatId, MessageId int64) {
 
 // etc
 // https://github.com/zelenin/go-tdlib/blob/ec36320d03ff5c891bb45be1c14317c195eeadb9/client/type.go#L1028-L1108
+
+
+// How to use markdown?
+
+	formattedText, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
+		Text: "*bold* _italic_ `code`",
+		ParseMode: &client.TextParseModeMarkdown{
+			Version: 2,
+		},
+	})
+	if err != nil {
+		log.Print(err)
+	} else {
+		log.Printf("%#v", formattedText)
+	}
+
 ```
