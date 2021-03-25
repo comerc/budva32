@@ -72,3 +72,59 @@ $ sudo apt-get install build-essential gperf ccache zlib1g-dev libssl-dev librea
 ```
 
 Or use [TDLib build instructions](https://tdlib.github.io/td/build.html)
+
+# Examples
+
+```go
+func forwardMessage(tdlibClient *client.Client, srcChatId, dscChatId, messageId int64) {
+	forwardedMessages, err := tdlibClient.ForwardMessages(&client.ForwardMessagesRequest{
+		ChatId:     dscChatId,
+		FromChatId: srcChatId,
+		MessageIds: []int64{messageId},
+		Options: &client.MessageSendOptions{
+			DisableNotification: false,
+			FromBackground:      false,
+			SchedulingState: &client.MessageSchedulingStateSendAtDate{
+				SendDate: int32(time.Now().Unix()),
+			},
+		},
+	})
+	if err != nil {
+		fmt.Println(err)
+	}
+	if forwardedMessages.TotalCount != 1 {
+		fmt.Println("Invalid TotalCount")
+	} else {
+		forwardedMessage := forwardedMessages.Messages[0]
+		fmt.Println("setMessageId: ", srcChatId, messageId, dscChatId, forwardedMessage.Id)
+	}
+}
+
+func getMessage(tdlibClient *client.Client, ChatId, MessageId int64) {
+	message, err := tdlibClient.GetMessage(&client.GetMessageRequest{ChatId: ChatId, MessageId: MessageId})
+	fmt.Println("****")
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Printf("%#v\n", message)
+	}
+}
+
+func getMessageLink(tdlibClient *client.Client, ChatId, MessageId int64) {
+	messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
+		ChatId:     ChatId,
+		MessageId:  MessageId,
+		ForAlbum:   false,
+		ForComment: false,
+	})
+	fmt.Println("****")
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Printf("%#v\n", messageLink)
+	}
+}
+
+// etc
+// https://github.com/zelenin/go-tdlib/blob/ec36320d03ff5c891bb45be1c14317c195eeadb9/client/type.go#L1028-L1108
+```

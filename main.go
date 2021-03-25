@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -30,15 +31,24 @@ func main() {
 		apiHash = os.Getenv("BUDVA32_API_HASH")
 	)
 
-	var account accounts.TdInstance
-	account.AccountName = "@AndrewKachanov"
-	account.TdlibDbDirectory = filepath.Join("tddata", account.AccountName+"-tdlib-db")
-	account.TdlibFilesDirectory = filepath.Join("tddata", account.AccountName+"-tdlib-files")
+	var account accounts.TDInstance
+	account.PhoneNumber = "79262737087"
+	account.TDLibDatabaseDirectory = filepath.Join("tddata", account.PhoneNumber+"-tdlib-db")
+	account.TDLibFilesDirectory = filepath.Join("tddata", account.PhoneNumber+"-tdlib-files")
+
+	var config accounts.Config
+	config.PhoneNumber = "79262737087"
+	config.Forwards = []accounts.Forward{
+		{
+			From: -1001374011821,
+			To:   []int64{-1001386686650},
+		},
+	}
 
 	authorizer.TdlibParameters <- &client.TdlibParameters{
 		UseTestDc:              false,
-		DatabaseDirectory:      account.TdlibDbDirectory,
-		FilesDirectory:         account.TdlibFilesDirectory,
+		DatabaseDirectory:      account.TDLibDatabaseDirectory,
+		FilesDirectory:         account.TDLibFilesDirectory,
 		UseFileDatabase:        true,
 		UseChatInfoDatabase:    true,
 		UseMessageDatabase:     true,
@@ -62,6 +72,15 @@ func main() {
 		log.Fatalf("NewClient error: %s", err)
 	}
 
+	// Handle Ctrl+C
+	// ch := make(chan os.Signal, 2)
+	// signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	// go func() {
+	// 	<-ch
+	// 	tdlibClient.Stop()
+	// 	os.Exit(1)
+	// }()
+
 	optionValue, err := tdlibClient.GetOption(&client.GetOptionRequest{
 		Name: "version",
 	})
@@ -69,51 +88,71 @@ func main() {
 		log.Fatalf("GetOption error: %s", err)
 	}
 
-	log.Printf("TDLib version: %s", optionValue.(*client.OptionValueString).Value)
+	fmt.Printf("TDLib version: %s\n", optionValue.(*client.OptionValueString).Value)
 
 	me, err := tdlibClient.GetMe()
 	if err != nil {
 		log.Fatalf("GetMe error: %s", err)
 	}
 
-	log.Printf("Me: %s %s [%s]", me.FirstName, me.LastName, me.Username)
+	fmt.Printf("Me: %s %s [%s]\n", me.FirstName, me.LastName, me.Username)
+
+	listener := tdlibClient.GetListener()
+	defer listener.Close()
+
+	for update := range listener.Updates {
+		if update.GetClass() == client.ClassUpdate {
+			updateNewMessage, ok := update.(*client.UpdateNewMessage)
+			if ok {
+				// if (me.PhoneNumber == config.PhoneNumber) {}
+				forwards := config.Forwards
+				for _, forward := range forwards {
+					if updateNewMessage.Message.ChatId == forward.From {
+						fmt.Println(config.PhoneNumber, "- Message ", updateNewMessage.Message.Id, " forwarded from ", updateNewMessage.Message.ChatId)
+						for _, to := range forward.To {
+							formattedText := updateNewMessage.Message.Content.(*client.MessageText).Text
+							inputMessageContent := client.InputMessageText{
+								Text:                  formattedText,
+								DisableWebPagePreview: true,
+								ClearDraft:            true,
+							}
+							message, err := tdlibClient.SendMessage(&client.SendMessageRequest{
+								ChatId:              to,
+								InputMessageContent: &inputMessageContent,
+							})
+							if err != nil {
+								fmt.Println(err)
+							} else {
+								fmt.Println(">>>>")
+								fmt.Printf("%#v\n", message)
+							}
+
+						}
+					}
+				}
+
+			}
+
+		}
+	}
+
 }
-
-// Receive updates
-
-// tdlibClient, err := client.NewClient(authorizer)
-// if err != nil {
-//     log.Fatalf("NewClient error: %s", err)
-// }
-
-// listener := tdlibClient.GetListener()
-// defer listener.Close()
-
-// for update := range listener.Updates {
-//     if update.GetClass() == client.ClassUpdate {
-//         log.Printf("%#v", update)
-//     }
-// }
-
-// Proxy support
-
-// proxy := client.WithProxy(&client.AddProxyRequest{
-// 	Server: "1.1.1.1",
-// 	Port:   1080,
-// 	Enable: true,
-// 	Type: &client.ProxyTypeSocks5{
-// 			Username: "username",
-// 			Password: "password",
-// 	},
-// })
-
-// tdlibClient, err := client.NewClient(authorizer, proxy)
 
 func convertToInt32(s string) int32 {
 	i, err := strconv.Atoi(s)
 	if err != nil {
-		log.Println(err)
+		fmt.Println(err)
 		return 0
 	}
 	return int32(i)
 }
+
+// var messageIds = make(map[string]int64)
+//
+// func setMessageId(srcChatId, srcMessageId, dscChatId, dscMessageId int64) {
+// 	messageIds[fmt.Sprintf("%d:%d:%d", srcChatId, srcMessageId, dscChatId)] = dscMessageId
+// }
+//
+// func getMessageId(srcChatId, srcMessageId, dscChatId int64) int64 {
+// 	return messageIds[fmt.Sprintf("%d:%d:%d", srcChatId, srcMessageId, dscChatId)]
+// }
