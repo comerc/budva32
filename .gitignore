@@ -1,6 +1,4 @@
 .idea/
 tddata/
-accounts.json
-config.json
-errors.txt
+config.yml
 .env

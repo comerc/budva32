@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/comerc/budva32/accounts"
 	"github.com/joho/godotenv"
@@ -13,7 +14,28 @@ import (
 )
 
 func main() {
+	if err := godotenv.Load(".env"); err != nil {
+		log.Fatalf("Error loading .env file")
+	}
+	var (
+		apiId   = os.Getenv("BUDVA32_API_ID")
+		apiHash = os.Getenv("BUDVA32_API_HASH")
+	)
 
+	if err := accounts.ReadConfigFile(); err != nil {
+		fmt.Println("Can't initialise config:", err)
+	}
+
+	for _, config := range accounts.Configs {
+		go run(config, apiId, apiHash)
+	}
+
+	for {
+		time.Sleep(time.Hour)
+	}
+}
+
+func run(config accounts.Config, apiId, apiHash string) {
 	// client authorizer
 	authorizer := client.ClientAuthorizer()
 	go client.CliInteractor(authorizer)
@@ -22,33 +44,10 @@ func main() {
 	// botToken := "000000000:gsVCGG5YbikxYHC7bP5vRvmBqJ7Xz6vG6td"
 	// authorizer := client.BotAuthorizer(botToken)
 
-	err := godotenv.Load(".env")
-	if err != nil {
-		log.Fatalf("Error loading .env file")
-	}
-	var (
-		apiId   = os.Getenv("BUDVA32_API_ID")
-		apiHash = os.Getenv("BUDVA32_API_HASH")
-	)
-
-	var account accounts.TDInstance
-	account.PhoneNumber = "79262737087"
-	account.TDLibDatabaseDirectory = filepath.Join("tddata", account.PhoneNumber+"-tdlib-db")
-	account.TDLibFilesDirectory = filepath.Join("tddata", account.PhoneNumber+"-tdlib-files")
-
-	var config accounts.Config
-	config.PhoneNumber = "79262737087"
-	config.Forwards = []accounts.Forward{
-		{
-			From: -1001374011821,
-			To:   []int64{-1001386686650},
-		},
-	}
-
 	authorizer.TdlibParameters <- &client.TdlibParameters{
 		UseTestDc:              false,
-		DatabaseDirectory:      account.TDLibDatabaseDirectory,
-		FilesDirectory:         account.TDLibFilesDirectory,
+		DatabaseDirectory:      filepath.Join("tddata", config.PhoneNumber+"-tdlib-db"),
+		FilesDirectory:         filepath.Join("tddata", config.PhoneNumber+"-tdlib-files"),
 		UseFileDatabase:        true,
 		UseChatInfoDatabase:    true,
 		UseMessageDatabase:     true,
@@ -64,13 +63,21 @@ func main() {
 	}
 
 	logVerbosity := client.WithLogVerbosity(&client.SetLogVerbosityLevelRequest{
-		NewVerbosityLevel: 0,
+		NewVerbosityLevel: 1,
 	})
 
 	tdlibClient, err := client.NewClient(authorizer, logVerbosity)
 	if err != nil {
 		log.Fatalf("NewClient error: %s", err)
 	}
+
+	tdlibClient.SetLogStream(&client.SetLogStreamRequest{
+		LogStream: &client.LogStreamFile{
+			Path:           filepath.Join("tddata", config.PhoneNumber+"-errors.log"),
+			MaxFileSize:    10485760,
+			RedirectStderr: true,
+		},
+	})
 
 	// Handle Ctrl+C
 	// ch := make(chan os.Signal, 2)
@@ -104,7 +111,6 @@ func main() {
 		if update.GetClass() == client.ClassUpdate {
 			updateNewMessage, ok := update.(*client.UpdateNewMessage)
 			if ok {
-				// if (me.PhoneNumber == config.PhoneNumber) {}
 				forwards := config.Forwards
 				for _, forward := range forwards {
 					if updateNewMessage.Message.ChatId == forward.From {
@@ -126,16 +132,12 @@ func main() {
 								fmt.Println(">>>>")
 								fmt.Printf("%#v\n", message)
 							}
-
 						}
 					}
 				}
-
 			}
-
 		}
 	}
-
 }
 
 func convertToInt32(s string) int32 {
