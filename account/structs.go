@@ -1,8 +1,8 @@
-package accounts
+package account
 
 const ConfigFile = "config.yml"
 
-type Config struct {
+type AccountConfig struct {
 	PhoneNumber string    `json:"PhoneNumber"`
 	Forwards    []Forward `json:"Forwards"`
 }
