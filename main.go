@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 
-	"github.com/comerc/budva32/accounts"
+	"github.com/comerc/budva32/account"
 	"github.com/joho/godotenv"
 	"github.com/zelenin/go-tdlib/client"
 )
@@ -22,20 +24,10 @@ func main() {
 		apiHash = os.Getenv("BUDVA32_API_HASH")
 	)
 
-	if err := accounts.ReadConfigFile(); err != nil {
-		fmt.Println("Can't initialise config:", err)
+	if err := account.ReadConfigFile(); err != nil {
+		log.Fatalf("Can't initialise config: %s", err)
 	}
 
-	for _, config := range accounts.Configs {
-		go run(config, apiId, apiHash)
-	}
-
-	for {
-		time.Sleep(time.Hour)
-	}
-}
-
-func run(config accounts.Config, apiId, apiHash string) {
 	// client authorizer
 	authorizer := client.ClientAuthorizer()
 	go client.CliInteractor(authorizer)
@@ -46,8 +38,8 @@ func run(config accounts.Config, apiId, apiHash string) {
 
 	authorizer.TdlibParameters <- &client.TdlibParameters{
 		UseTestDc:              false,
-		DatabaseDirectory:      filepath.Join("tddata", config.PhoneNumber+"-tdlib-db"),
-		FilesDirectory:         filepath.Join("tddata", config.PhoneNumber+"-tdlib-files"),
+		DatabaseDirectory:      filepath.Join("tddata", account.Config.PhoneNumber+"-tdlib-db"),
+		FilesDirectory:         filepath.Join("tddata", account.Config.PhoneNumber+"-tdlib-files"),
 		UseFileDatabase:        true,
 		UseChatInfoDatabase:    true,
 		UseMessageDatabase:     true,
@@ -70,23 +62,15 @@ func run(config accounts.Config, apiId, apiHash string) {
 	if err != nil {
 		log.Fatalf("NewClient error: %s", err)
 	}
+	// defer tdlibClient.Stop()
 
 	tdlibClient.SetLogStream(&client.SetLogStreamRequest{
 		LogStream: &client.LogStreamFile{
-			Path:           filepath.Join("tddata", config.PhoneNumber+"-errors.log"),
+			Path:           filepath.Join("tddata", account.Config.PhoneNumber+"-errors.log"),
 			MaxFileSize:    10485760,
 			RedirectStderr: true,
 		},
 	})
-
-	// Handle Ctrl+C
-	// ch := make(chan os.Signal, 2)
-	// signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
-	// go func() {
-	// 	<-ch
-	// 	tdlibClient.Stop()
-	// 	os.Exit(1)
-	// }()
 
 	optionValue, err := tdlibClient.GetOption(&client.GetOptionRequest{
 		Name: "version",
@@ -95,55 +79,55 @@ func run(config accounts.Config, apiId, apiHash string) {
 		log.Fatalf("GetOption error: %s", err)
 	}
 
-	fmt.Printf("TDLib version: %s\n", optionValue.(*client.OptionValueString).Value)
+	log.Printf("TDLib version: %s", optionValue.(*client.OptionValueString).Value)
 
 	me, err := tdlibClient.GetMe()
 	if err != nil {
 		log.Fatalf("GetMe error: %s", err)
 	}
 
-	fmt.Printf("Me: %s %s [%s]\n", me.FirstName, me.LastName, me.Username)
+	log.Printf("Me: %s %s [%s]", me.FirstName, me.LastName, me.Username)
 
 	listener := tdlibClient.GetListener()
-	defer listener.Close()
+	// defer listener.Close()
 
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
+			updateMessageEdited, ok := update.(*client.UpdateMessageEdited)
+			if ok {
+				src := getMessage(tdlibClient,
+					updateMessageEdited.ChatId,
+					updateMessageEdited.MessageId,
+				)
+				forwardMessage(tdlibClient, src, true)
+			}
 			updateNewMessage, ok := update.(*client.UpdateNewMessage)
 			if ok {
-				forwards := config.Forwards
-				for _, forward := range forwards {
-					if updateNewMessage.Message.ChatId == forward.From {
-						fmt.Println(config.PhoneNumber, "- Message ", updateNewMessage.Message.Id, " forwarded from ", updateNewMessage.Message.ChatId)
-						for _, to := range forward.To {
-							formattedText := updateNewMessage.Message.Content.(*client.MessageText).Text
-							inputMessageContent := client.InputMessageText{
-								Text:                  formattedText,
-								DisableWebPagePreview: true,
-								ClearDraft:            true,
-							}
-							message, err := tdlibClient.SendMessage(&client.SendMessageRequest{
-								ChatId:              to,
-								InputMessageContent: &inputMessageContent,
-							})
-							if err != nil {
-								fmt.Println(err)
-							} else {
-								fmt.Println(">>>>")
-								fmt.Printf("%#v\n", message)
-							}
-						}
-					}
-				}
+				src := updateNewMessage.Message
+				forwardMessage(tdlibClient, src, false)
 			}
 		}
+	}
+
+	// Handle Ctrl+C
+	ch := make(chan os.Signal, 2)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-ch
+		listener.Close()
+		tdlibClient.Stop()
+		os.Exit(1)
+	}()
+
+	for {
+		time.Sleep(time.Hour)
 	}
 }
 
 func convertToInt32(s string) int32 {
 	i, err := strconv.Atoi(s)
 	if err != nil {
-		fmt.Println(err)
+		log.Print(err)
 		return 0
 	}
 	return int32(i)
@@ -158,3 +142,47 @@ func convertToInt32(s string) int32 {
 // func getMessageId(srcChatId, srcMessageId, dscChatId int64) int64 {
 // 	return messageIds[fmt.Sprintf("%d:%d:%d", srcChatId, srcMessageId, dscChatId)]
 // }
+
+func getEditedLabel(isEdited bool) string {
+	if isEdited {
+		return ` EDITED!`
+	}
+	return ""
+}
+
+func forwardMessage(tdlibClient *client.Client, src *client.Message, isEdited bool) {
+	forwards := account.Config.Forwards
+	for _, forward := range forwards {
+		if src.ChatId == forward.From {
+			for _, to := range forward.To {
+				formattedText := src.Content.(*client.MessageText).Text
+				formattedText.Text = fmt.Sprintf("%s\n\n#C%dM%d%s",
+					formattedText.Text, -src.ChatId, src.Id, getEditedLabel(isEdited))
+				inputMessageContent := client.InputMessageText{
+					Text:                  formattedText,
+					DisableWebPagePreview: true,
+					ClearDraft:            true,
+				}
+				dsc, err := tdlibClient.SendMessage(&client.SendMessageRequest{
+					ChatId:              to,
+					InputMessageContent: &inputMessageContent,
+				})
+				if err != nil {
+					log.Print(err)
+					_ = dsc
+				}
+			}
+		}
+	}
+}
+
+func getMessage(tdlibClient *client.Client, ChatId, MessageId int64) *client.Message {
+	result, err := tdlibClient.GetMessage(&client.GetMessageRequest{
+		ChatId:    ChatId,
+		MessageId: MessageId,
+	})
+	if err != nil {
+		log.Print(err)
+	}
+	return result
+}
