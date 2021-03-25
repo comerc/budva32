@@ -145,7 +145,7 @@ func convertToInt32(s string) int32 {
 
 func getEditedLabel(isEdited bool) string {
 	if isEdited {
-		return ` EDITED!`
+		return " EDITED!"
 	}
 	return ""
 }

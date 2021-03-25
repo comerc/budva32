@@ -73,7 +73,7 @@ $ sudo apt-get install build-essential gperf ccache zlib1g-dev libssl-dev librea
 
 Or use [TDLib build instructions](https://tdlib.github.io/td/build.html)
 
-# Examples
+## Examples
 
 ```go
 func forwardMessage(tdlibClient *client.Client, srcChatId, dscChatId, messageId int64) {
