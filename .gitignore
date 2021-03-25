@@ -2,3 +2,8 @@
 tddata/
 config.yml
 .env
+
+# old version
+config.json
+accounts.json
+errors.txt
