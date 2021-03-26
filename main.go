@@ -91,6 +91,7 @@ func main() {
 	listener := tdlibClient.GetListener()
 	// defer listener.Close()
 
+	forwards := account.Config.Forwards
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
 			// TODO: how to copy Album (via SendMessageAlbum)
@@ -99,13 +100,22 @@ func main() {
 					updateMessageEdited.ChatId,
 					updateMessageEdited.MessageId,
 				)
-				forwardMessageEdited(tdlibClient, src)
-				continue
-			}
-			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
+				for _, forward := range forwards {
+					if src.ChatId == forward.From {
+						for _, dscChatId := range forward.To {
+							forwardMessageEdited(tdlibClient, src, dscChatId)
+						}
+					}
+				}
+			} else if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
 				src := updateNewMessage.Message
-				forwardNewMessage(tdlibClient, src)
-				continue
+				for _, forward := range forwards {
+					if src.ChatId == forward.From {
+						for _, dscChatId := range forward.To {
+							forwardNewMessage(tdlibClient, src, dscChatId)
+						}
+					}
+				}
 			}
 		}
 	}
@@ -136,12 +146,12 @@ func convertToInt32(s string) int32 {
 
 var messageIds = make(map[string]int64)
 
-func setMessageId(srcChatId, srcMessageId, dscChatId, dscMessageId int64) {
-	messageIds[fmt.Sprintf("%d:%d:%d", srcChatId, srcMessageId, dscChatId)] = dscMessageId
+func setMessageId(srcChatId, srcId, dscChatId, dscId int64) {
+	messageIds[fmt.Sprintf("%d:%d:%d", srcChatId, srcId, dscChatId)] = dscId
 }
 
-func getMessageId(srcChatId, srcMessageId, dscChatId int64) int64 {
-	return messageIds[fmt.Sprintf("%d:%d:%d", srcChatId, srcMessageId, dscChatId)]
+func getMessageId(srcChatId, srcId, dscChatId int64) int64 {
+	return messageIds[fmt.Sprintf("%d:%d:%d", srcChatId, srcId, dscChatId)]
 }
 
 // func getEditedLabel(isEdited bool) string {
@@ -153,61 +163,57 @@ func getMessageId(srcChatId, srcMessageId, dscChatId int64) int64 {
 // formattedText.Text = fmt.Sprintf("%s\n\n#C%dM%d%s",
 // 	formattedText.Text, -src.ChatId, src.Id, getEditedLabel(isEdited))
 
-func forwardMessageEdited(tdlibClient *client.Client, src *client.Message) {
-	forwards := account.Config.Forwards
-	for _, forward := range forwards {
-		if src.ChatId == forward.From {
-			for _, to := range forward.To {
-				var formattedText *client.FormattedText
-				if content, ok := src.Content.(*client.MessageText); ok {
-					formattedText = content.Text
-				}
-				if content, ok := src.Content.(*client.MessagePhoto); ok {
-					formattedText = content.Caption
-				}
-				// client.MessageAnimation
-				// client.MessageAudio
-				// client.MessageDocument
-				// client.MessageExpiredPhoto
-				// client.MessageSticker
-				// client.MessageVideo
-				// client.MessageExpiredVideo
-				// client.MessageVideoNote
-				// client.MessageVoiceNote
-				// client.MessageLocation
-				// client.MessageVenue
-				// client.MessageContact
-				// client.MessageDice
-				// client.MessageGame
-				// client.MessagePoll
-				// client.MessageInvoice
-				if formattedText == nil {
-					log.Printf("Unsupported Content: %s", src.Content.MessageContentType())
-					continue
-				}
-				dsc, err := tdlibClient.SendMessage(&client.SendMessageRequest{
-					ChatId: to,
-					InputMessageContent: &client.InputMessageText{
-						Text:                  formattedText,
-						DisableWebPagePreview: true,
-						ClearDraft:            true,
-					},
-					ReplyToMessageId: getMessageId(src.ChatId, src.Id, to),
-				})
-				if err != nil {
-					log.Print(err)
-				} else {
-					setMessageId(src.ChatId, src.Id, dsc.ChatId, dsc.Id)
-				}
-			}
-		}
+func forwardMessageEdited(tdlibClient *client.Client, src *client.Message, dscChatId int64) {
+	var formattedText *client.FormattedText
+	if content, ok := src.Content.(*client.MessageText); ok {
+		formattedText = content.Text
+	} else if content, ok := src.Content.(*client.MessagePhoto); ok {
+		formattedText = content.Caption
+	} else if content, ok := src.Content.(*client.MessageAnimation); ok {
+		formattedText = content.Caption
+	} else if content, ok := src.Content.(*client.MessageAudio); ok {
+		formattedText = content.Caption
+	} else if content, ok := src.Content.(*client.MessageDocument); ok {
+		formattedText = content.Caption
+	} else if content, ok := src.Content.(*client.MessageVideo); ok {
+		formattedText = content.Caption
+	} else if content, ok := src.Content.(*client.MessageVoiceNote); ok {
+		formattedText = content.Caption
+	} else {
+		// client.MessageExpiredPhoto
+		// client.MessageSticker
+		// client.MessageExpiredVideo
+		// client.MessageVideoNote
+		// client.MessageLocation
+		// client.MessageVenue
+		// client.MessageContact
+		// client.MessageDice
+		// client.MessageGame
+		// client.MessagePoll
+		// client.MessageInvoice
+		forwardNewMessage(tdlibClient, src, dscChatId)
+		return
+	}
+	dsc, err := tdlibClient.SendMessage(&client.SendMessageRequest{
+		ChatId: dscChatId,
+		InputMessageContent: &client.InputMessageText{
+			Text:                  formattedText,
+			DisableWebPagePreview: true,
+			ClearDraft:            true,
+		},
+		ReplyToMessageId: getMessageId(src.ChatId, src.Id, dscChatId),
+	})
+	if err != nil {
+		log.Print(err)
+	} else {
+		setMessageId(src.ChatId, src.Id, dsc.ChatId, dsc.Id)
 	}
 }
 
-func getMessage(tdlibClient *client.Client, ChatId, MessageId int64) *client.Message {
+func getMessage(tdlibClient *client.Client, ChatId, Id int64) *client.Message {
 	result, err := tdlibClient.GetMessage(&client.GetMessageRequest{
 		ChatId:    ChatId,
-		MessageId: MessageId,
+		MessageId: Id,
 	})
 	if err != nil {
 		log.Print(err)
@@ -215,34 +221,27 @@ func getMessage(tdlibClient *client.Client, ChatId, MessageId int64) *client.Mes
 	return result
 }
 
-func forwardNewMessage(tdlibClient *client.Client, src *client.Message) {
-	forwards := account.Config.Forwards
-	for _, forward := range forwards {
-		if src.ChatId == forward.From {
-			for _, to := range forward.To {
-				forwardedMessages, err := tdlibClient.ForwardMessages(&client.ForwardMessagesRequest{
-					ChatId:     to,
-					FromChatId: src.ChatId,
-					MessageIds: []int64{src.Id},
-					Options: &client.MessageSendOptions{
-						DisableNotification: false,
-						FromBackground:      false,
-						SchedulingState: &client.MessageSchedulingStateSendAtDate{
-							SendDate: int32(time.Now().Unix()),
-						},
-					},
-					SendCopy:      true,
-					RemoveCaption: false,
-				})
-				if err != nil {
-					log.Print(err)
-				} else if forwardedMessages.TotalCount != 1 {
-					log.Print("Invalid TotalCount")
-				} else {
-					dsc := forwardedMessages.Messages[0]
-					setMessageId(src.ChatId, src.Id, dsc.ChatId, dsc.Id)
-				}
-			}
-		}
+func forwardNewMessage(tdlibClient *client.Client, src *client.Message, dscChatId int64) {
+	forwardedMessages, err := tdlibClient.ForwardMessages(&client.ForwardMessagesRequest{
+		ChatId:     dscChatId,
+		FromChatId: src.ChatId,
+		MessageIds: []int64{src.Id},
+		Options: &client.MessageSendOptions{
+			DisableNotification: false,
+			FromBackground:      false,
+			SchedulingState: &client.MessageSchedulingStateSendAtDate{
+				SendDate: int32(time.Now().Unix()),
+			},
+		},
+		SendCopy:      true,
+		RemoveCaption: false,
+	})
+	if err != nil {
+		log.Print(err)
+	} else if forwardedMessages.TotalCount != 1 {
+		log.Print("Invalid TotalCount")
+	} else {
+		dsc := forwardedMessages.Messages[0]
+		setMessageId(src.ChatId, src.Id, dsc.ChatId, dsc.Id)
 	}
 }
