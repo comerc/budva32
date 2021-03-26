@@ -3,11 +3,20 @@ package account
 const ConfigFile = "config.yml"
 
 type AccountConfig struct {
-	PhoneNumber string    `json:"PhoneNumber"`
-	Forwards    []Forward `json:"Forwards"`
+	PhoneNumber string
+	Forwards    []Forward
 }
 
 type Forward struct {
-	From int64   `json:"From"`
-	To   []int64 `json:"To"`
+	From            int64
+	To              []int64
+	Exclude         string
+	Include         string
+	IncludeSubmatch []IncludeSubmatch
+}
+
+type IncludeSubmatch struct {
+	Regexp string
+	Group  int64
+	Match  []string
 }

@@ -129,3 +129,18 @@ func getMessageLink(tdlibClient *client.Client, ChatId, MessageId int64) {
 И можно получить отдельно всю историю в просмотре ответов (работает только для группы, но не для канала).
 
 ![](image2.jpg)
+
+## config.yml example
+
+```yml
+PhoneNumber: '78901234567'
+Forwards:
+  - From: -1234
+    To: [-4321]
+    Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
+    Include: '#ARK|#Идеи_покупок|#ОТЧЕТЫ'
+    IncludeSubmatch:
+      - Regexp: '(^|[^A-Z])\$([A-Z]+)'
+        Group: 2
+        Match: ['F', 'GM', 'TSLA']
+```

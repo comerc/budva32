@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"syscall"
 	"time"
@@ -95,24 +96,31 @@ func main() {
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
 			// TODO: how to copy Album (via SendMessageAlbum)
-			if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
+			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
+				src := updateNewMessage.Message
+				formattedText := getFormattedText(src.Content)
+				for _, forward := range forwards {
+					if src.ChatId == forward.From && canSend(formattedText, &forward) {
+						for _, dscChatId := range forward.To {
+							forwardNewMessage(tdlibClient, src, dscChatId)
+						}
+					}
+				}
+			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
 				src := getMessage(tdlibClient,
 					updateMessageEdited.ChatId,
 					updateMessageEdited.MessageId,
 				)
+				formattedText := getFormattedText(src.Content)
 				for _, forward := range forwards {
-					if src.ChatId == forward.From {
+					if src.ChatId == forward.From && canSend(formattedText, &forward) {
 						for _, dscChatId := range forward.To {
-							forwardMessageEdited(tdlibClient, src, dscChatId)
-						}
-					}
-				}
-			} else if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
-				src := updateNewMessage.Message
-				for _, forward := range forwards {
-					if src.ChatId == forward.From {
-						for _, dscChatId := range forward.To {
-							forwardNewMessage(tdlibClient, src, dscChatId)
+							if formattedText == nil {
+								forwardNewMessage(tdlibClient, src, dscChatId)
+								// TODO: ещё одно сообщение со ссылкой на исходник редактирования
+							} else {
+								forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
+							}
 						}
 					}
 				}
@@ -163,37 +171,7 @@ func getMessageId(srcChatId, srcId, dscChatId int64) int64 {
 // formattedText.Text = fmt.Sprintf("%s\n\n#C%dM%d%s",
 // 	formattedText.Text, -src.ChatId, src.Id, getEditedLabel(isEdited))
 
-func forwardMessageEdited(tdlibClient *client.Client, src *client.Message, dscChatId int64) {
-	var formattedText *client.FormattedText
-	if content, ok := src.Content.(*client.MessageText); ok {
-		formattedText = content.Text
-	} else if content, ok := src.Content.(*client.MessagePhoto); ok {
-		formattedText = content.Caption
-	} else if content, ok := src.Content.(*client.MessageAnimation); ok {
-		formattedText = content.Caption
-	} else if content, ok := src.Content.(*client.MessageAudio); ok {
-		formattedText = content.Caption
-	} else if content, ok := src.Content.(*client.MessageDocument); ok {
-		formattedText = content.Caption
-	} else if content, ok := src.Content.(*client.MessageVideo); ok {
-		formattedText = content.Caption
-	} else if content, ok := src.Content.(*client.MessageVoiceNote); ok {
-		formattedText = content.Caption
-	} else {
-		// client.MessageExpiredPhoto
-		// client.MessageSticker
-		// client.MessageExpiredVideo
-		// client.MessageVideoNote
-		// client.MessageLocation
-		// client.MessageVenue
-		// client.MessageContact
-		// client.MessageDice
-		// client.MessageGame
-		// client.MessagePoll
-		// client.MessageInvoice
-		forwardNewMessage(tdlibClient, src, dscChatId)
-		return
-	}
+func forwardMessageEdited(tdlibClient *client.Client, formattedText *client.FormattedText, srcChatId, srcId, dscChatId int64) {
 	dsc, err := tdlibClient.SendMessage(&client.SendMessageRequest{
 		ChatId: dscChatId,
 		InputMessageContent: &client.InputMessageText{
@@ -201,12 +179,12 @@ func forwardMessageEdited(tdlibClient *client.Client, src *client.Message, dscCh
 			DisableWebPagePreview: true,
 			ClearDraft:            true,
 		},
-		ReplyToMessageId: getMessageId(src.ChatId, src.Id, dscChatId),
+		ReplyToMessageId: getMessageId(srcChatId, srcId, dscChatId),
 	})
 	if err != nil {
 		log.Print(err)
 	} else {
-		setMessageId(src.ChatId, src.Id, dsc.ChatId, dsc.Id)
+		setMessageId(srcChatId, srcId, dsc.ChatId, dsc.Id)
 	}
 }
 
@@ -244,4 +222,82 @@ func forwardNewMessage(tdlibClient *client.Client, src *client.Message, dscChatI
 		dsc := forwardedMessages.Messages[0]
 		setMessageId(src.ChatId, src.Id, dsc.ChatId, dsc.Id)
 	}
+}
+
+func getFormattedText(messageContent client.MessageContent) *client.FormattedText {
+	var formattedText *client.FormattedText
+	if content, ok := messageContent.(*client.MessageText); ok {
+		formattedText = content.Text
+	} else if content, ok := messageContent.(*client.MessagePhoto); ok {
+		formattedText = content.Caption
+	} else if content, ok := messageContent.(*client.MessageAnimation); ok {
+		formattedText = content.Caption
+	} else if content, ok := messageContent.(*client.MessageAudio); ok {
+		formattedText = content.Caption
+	} else if content, ok := messageContent.(*client.MessageDocument); ok {
+		formattedText = content.Caption
+	} else if content, ok := messageContent.(*client.MessageVideo); ok {
+		formattedText = content.Caption
+	} else if content, ok := messageContent.(*client.MessageVoiceNote); ok {
+		formattedText = content.Caption
+	} else {
+		// client.MessageExpiredPhoto
+		// client.MessageSticker
+		// client.MessageExpiredVideo
+		// client.MessageVideoNote
+		// client.MessageLocation
+		// client.MessageVenue
+		// client.MessageContact
+		// client.MessageDice
+		// client.MessageGame
+		// client.MessagePoll
+		// client.MessageInvoice
+		return nil
+	}
+	return formattedText
+}
+
+func contains(a []string, s string) bool {
+	for _, t := range a {
+		if t == s {
+			return true
+		}
+	}
+	return false
+}
+
+func canSend(formattedText *client.FormattedText, forward *account.Forward) bool {
+	if formattedText != nil {
+		if forward.Exclude != "" {
+			re := regexp.MustCompile("(?i)" + forward.Exclude)
+			if re.FindString(formattedText.Text) != "" {
+				return false
+			}
+		}
+		hasInclude := false
+		if forward.Include != "" {
+			hasInclude = true
+			re := regexp.MustCompile("(?i)" + forward.Include)
+			if re.FindString(formattedText.Text) != "" {
+				return true
+			}
+		}
+		for _, includeSubmatch := range forward.IncludeSubmatch {
+			if includeSubmatch.Regexp != "" {
+				hasInclude = true
+				re := regexp.MustCompile("(?i)" + includeSubmatch.Regexp)
+				matches := re.FindAllStringSubmatch(formattedText.Text, -1)
+				for _, match := range matches {
+					s := match[includeSubmatch.Group]
+					if contains(includeSubmatch.Match, s) {
+						return true
+					}
+				}
+			}
+		}
+		if hasInclude {
+			return false
+		}
+	}
+	return true
 }
