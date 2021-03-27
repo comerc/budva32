@@ -1,8 +1,10 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -16,7 +18,20 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: реализовать выдачу списка собственных чатов по флагу
+// TODO: запретить отправку самому себе (FROM == TO)
+// TODO: статический tdlib
+// TODO: упаковать в Docker
+// TODO: badger
+// TODO: вкурить go-каналы
+// TODO: как очищать базу данных tdlib
+// TODO: SendCopy
+
 func main() {
+	var chatListLimit int
+	flag.IntVar(&chatListLimit, "chatlist", 0, "Get chat list with limit")
+	flag.Parse()
+
 	if err := godotenv.Load(".env"); err != nil {
 		log.Fatalf("Error loading .env file")
 	}
@@ -67,7 +82,7 @@ func main() {
 
 	tdlibClient.SetLogStream(&client.SetLogStreamRequest{
 		LogStream: &client.LogStreamFile{
-			Path:           filepath.Join("tddata", account.Config.PhoneNumber+"-errors.log"),
+			Path:           filepath.Join("tddata", account.Config.PhoneNumber+".log"),
 			MaxFileSize:    10485760,
 			RedirectStderr: true,
 		},
@@ -87,7 +102,29 @@ func main() {
 		log.Fatalf("GetMe error: %s", err)
 	}
 
-	log.Printf("Me: %s %s [%s]", me.FirstName, me.LastName, me.Username)
+	log.Printf("Me: %s %s [@%s]", me.FirstName, me.LastName, me.Username)
+
+	if chatListLimit > 0 {
+		chats, err := tdlibClient.GetChats(&client.GetChatsRequest{
+			ChatList:    &client.ChatListMain{},
+			Limit:       int32(chatListLimit),
+			OffsetOrder: client.JsonInt64(int64(math.MaxInt64)),
+		})
+		if err != nil {
+			log.Fatalf("GetChats error: %s", err)
+		}
+		for _, chatId := range chats.ChatIds {
+			chat, err := tdlibClient.GetChat(&client.GetChatRequest{
+				ChatId: chatId,
+			})
+			if err != nil {
+				log.Fatalf("GetChat error: %s", err)
+			}
+			fmt.Println(chat.Id, chat.Title)
+		}
+		tdlibClient.Stop()
+		return
+	}
 
 	listener := tdlibClient.GetListener()
 	// defer listener.Close()

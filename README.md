@@ -136,7 +136,7 @@ func getMessageLink(tdlibClient *client.Client, ChatId, MessageId int64) {
 PhoneNumber: '78901234567'
 Forwards:
   - From: -1234
-    To: [-4321]
+    To: [-4321, -8888]
     Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
     Include: '#ARK|#Идеи_покупок|#ОТЧЕТЫ'
     IncludeSubmatch:
@@ -144,3 +144,7 @@ Forwards:
         Group: 2
         Match: ['F', 'GM', 'TSLA']
 ```
+
+## Get chat list with limit
+
+-chatlist int
