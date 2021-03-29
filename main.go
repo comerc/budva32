@@ -6,11 +6,9 @@ import (
 	"log"
 	"math"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/comerc/budva32/account"
@@ -18,21 +16,18 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: реализовать выдачу списка собственных чатов по флагу
-// TODO: запретить отправку самому себе (FROM == TO)
+// TODO: упаковать в Docker (для старой Ubuntu)
 // TODO: статический tdlib
-// TODO: упаковать в Docker
 // TODO: badger
 // TODO: вкурить go-каналы
-// TODO: как очищать базу данных tdlib
-// TODO: SendCopy
+// TODO: как очищать message database tdlib
 
 func main() {
 	var chatListLimit int
 	flag.IntVar(&chatListLimit, "chatlist", 0, "Get chat list with limit")
 	flag.Parse()
 
-	if err := godotenv.Load(".env"); err != nil {
+	if err := godotenv.Load(); err != nil {
 		log.Fatalf("Error loading .env file")
 	}
 	var (
@@ -42,6 +37,14 @@ func main() {
 
 	if err := account.ReadConfigFile(); err != nil {
 		log.Fatalf("Can't initialise config: %s", err)
+	}
+	forwards := account.Config.Forwards
+	for _, forward := range forwards {
+		for _, dscChatId := range forward.To {
+			if forward.From == dscChatId {
+				log.Fatalf("Invalid config. Destination Id cannot be equal source Id: %d", dscChatId)
+			}
+		}
 	}
 
 	// client authorizer
@@ -56,8 +59,8 @@ func main() {
 		UseTestDc:              false,
 		DatabaseDirectory:      filepath.Join("tddata", account.Config.PhoneNumber+"-tdlib-db"),
 		FilesDirectory:         filepath.Join("tddata", account.Config.PhoneNumber+"-tdlib-files"),
-		UseFileDatabase:        true,
-		UseChatInfoDatabase:    true,
+		UseFileDatabase:        false,
+		UseChatInfoDatabase:    false,
 		UseMessageDatabase:     true,
 		UseSecretChats:         false,
 		ApiId:                  convertToInt32(apiId),
@@ -78,7 +81,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("NewClient error: %s", err)
 	}
-	// defer tdlibClient.Stop()
+	defer tdlibClient.Stop()
 
 	tdlibClient.SetLogStream(&client.SetLogStreamRequest{
 		LogStream: &client.LogStreamFile{
@@ -106,9 +109,10 @@ func main() {
 
 	if chatListLimit > 0 {
 		chats, err := tdlibClient.GetChats(&client.GetChatsRequest{
-			ChatList:    &client.ChatListMain{},
-			Limit:       int32(chatListLimit),
-			OffsetOrder: client.JsonInt64(int64(math.MaxInt64)),
+			ChatList:     &client.ChatListMain{},
+			Limit:        int32(chatListLimit),
+			OffsetOrder:  client.JsonInt64(int64(math.MaxInt64)),
+			OffsetChatId: int64(0),
 		})
 		if err != nil {
 			log.Fatalf("GetChats error: %s", err)
@@ -122,14 +126,13 @@ func main() {
 			}
 			fmt.Println(chat.Id, chat.Title)
 		}
-		tdlibClient.Stop()
+		os.Exit(1)
 		return
 	}
 
 	listener := tdlibClient.GetListener()
-	// defer listener.Close()
+	defer listener.Close()
 
-	forwards := account.Config.Forwards
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
 			// TODO: how to copy Album (via SendMessageAlbum)
@@ -139,21 +142,26 @@ func main() {
 				for _, forward := range forwards {
 					if src.ChatId == forward.From && canSend(formattedText, &forward) {
 						for _, dscChatId := range forward.To {
-							forwardNewMessage(tdlibClient, src, dscChatId)
+							// fmt.Println("forwardNewMessage:", forward.SendCopy)
+							forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
 						}
 					}
 				}
 			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
-				src := getMessage(tdlibClient,
-					updateMessageEdited.ChatId,
-					updateMessageEdited.MessageId,
-				)
+				src, err := tdlibClient.GetMessage(&client.GetMessageRequest{
+					ChatId:    updateMessageEdited.ChatId,
+					MessageId: updateMessageEdited.MessageId,
+				})
+				if err != nil {
+					log.Print(err)
+					continue
+				}
 				formattedText := getFormattedText(src.Content)
 				for _, forward := range forwards {
 					if src.ChatId == forward.From && canSend(formattedText, &forward) {
 						for _, dscChatId := range forward.To {
 							if formattedText == nil {
-								forwardNewMessage(tdlibClient, src, dscChatId)
+								forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
 								// TODO: ещё одно сообщение со ссылкой на исходник редактирования
 							} else {
 								forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
@@ -166,14 +174,12 @@ func main() {
 	}
 
 	// Handle Ctrl+C
-	ch := make(chan os.Signal, 2)
-	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-ch
-		listener.Close()
-		tdlibClient.Stop()
-		os.Exit(1)
-	}()
+	// ch := make(chan os.Signal, 2)
+	// signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	// go func() {
+	// 	<-ch
+	// 	os.Exit(1)
+	// }()
 
 	for {
 		time.Sleep(time.Hour)
@@ -225,18 +231,7 @@ func forwardMessageEdited(tdlibClient *client.Client, formattedText *client.Form
 	}
 }
 
-func getMessage(tdlibClient *client.Client, ChatId, Id int64) *client.Message {
-	result, err := tdlibClient.GetMessage(&client.GetMessageRequest{
-		ChatId:    ChatId,
-		MessageId: Id,
-	})
-	if err != nil {
-		log.Print(err)
-	}
-	return result
-}
-
-func forwardNewMessage(tdlibClient *client.Client, src *client.Message, dscChatId int64) {
+func forwardNewMessage(tdlibClient *client.Client, src *client.Message, dscChatId int64, SendCopy bool) {
 	forwardedMessages, err := tdlibClient.ForwardMessages(&client.ForwardMessagesRequest{
 		ChatId:     dscChatId,
 		FromChatId: src.ChatId,
@@ -248,7 +243,7 @@ func forwardNewMessage(tdlibClient *client.Client, src *client.Message, dscChatI
 				SendDate: int32(time.Now().Unix()),
 			},
 		},
-		SendCopy:      true,
+		SendCopy:      SendCopy,
 		RemoveCaption: false,
 	})
 	if err != nil {
