@@ -10,6 +10,7 @@ type AccountConfig struct {
 type Forward struct {
 	From            int64
 	To              []int64
+	Other           int64
 	Exclude         string
 	Include         string
 	IncludeSubmatch []IncludeSubmatch

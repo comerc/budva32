@@ -22,7 +22,7 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: reload config.yml
+// TODO: reload & edit config.yml via web
 // TODO: вкурить go-каналы
 // TODO: как очищать message database tdlib
 
@@ -142,9 +142,14 @@ func main() {
 				src := updateNewMessage.Message
 				formattedText := getFormattedText(src.Content)
 				for _, forward := range forwards {
-					if src.ChatId == forward.From && canSend(formattedText, &forward) {
-						for _, dscChatId := range forward.To {
-							// fmt.Println("forwardNewMessage:", forward.SendCopy)
+					if src.ChatId == forward.From {
+						isOther := false
+						if canSend(formattedText, &forward, &isOther) {
+							for _, dscChatId := range forward.To {
+								forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
+							}
+						} else if isOther && forward.Other != 0 {
+							dscChatId := forward.Other
 							forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
 						}
 					}
@@ -160,8 +165,19 @@ func main() {
 				}
 				formattedText := getFormattedText(src.Content)
 				for _, forward := range forwards {
-					if src.ChatId == forward.From && canSend(formattedText, &forward) {
-						for _, dscChatId := range forward.To {
+					if src.ChatId == forward.From {
+						isOther := false
+						if canSend(formattedText, &forward, &isOther) {
+							for _, dscChatId := range forward.To {
+								if formattedText == nil {
+									forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
+									// TODO: ещё одно сообщение со ссылкой на исходник редактирования
+								} else {
+									forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
+								}
+							}
+						} else if isOther && forward.Other != 0 {
+							dscChatId := forward.Other
 							if formattedText == nil {
 								forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
 								// TODO: ещё одно сообщение со ссылкой на исходник редактирования
@@ -288,8 +304,24 @@ func contains(a []string, s string) bool {
 	return false
 }
 
-func canSend(formattedText *client.FormattedText, forward *account.Forward) bool {
-	if formattedText != nil {
+func canSend(formattedText *client.FormattedText, forward *account.Forward, isOther *bool) bool {
+	*isOther = false
+	if formattedText == nil {
+		hasInclude := false
+		if forward.Include != "" {
+			hasInclude = true
+		}
+		for _, includeSubmatch := range forward.IncludeSubmatch {
+			if includeSubmatch.Regexp != "" {
+				hasInclude = true
+				break
+			}
+		}
+		if hasInclude {
+			*isOther = true
+			return false
+		}
+	} else {
 		if forward.Exclude != "" {
 			re := regexp.MustCompile("(?i)" + forward.Exclude)
 			if re.FindString(formattedText.Text) != "" {
@@ -318,41 +350,9 @@ func canSend(formattedText *client.FormattedText, forward *account.Forward) bool
 			}
 		}
 		if hasInclude {
+			*isOther = true
 			return false
 		}
-		// variant for Include AND IncludeSubmatch (or single Include/IncludeSubmatch)
-		// hasInclude := false
-		// isExist := false
-		// if forward.Include != "" {
-		// 	hasInclude = true
-		// 	re := regexp.MustCompile("(?i)" + forward.Include)
-		// 	if re.FindString(formattedText.Text) != "" {
-		// 		isExist = true
-		// 	}
-		// }
-		// if !hasInclude || isExist {
-		// 	for _, includeSubmatch := range forward.IncludeSubmatch {
-		// 		if includeSubmatch.Regexp != "" {
-		// 			hasInclude = true
-		// 			isExist = false
-		// 			re := regexp.MustCompile("(?i)" + includeSubmatch.Regexp)
-		// 			matches := re.FindAllStringSubmatch(formattedText.Text, -1)
-		// 			for _, match := range matches {
-		// 				s := match[includeSubmatch.Group]
-		// 				if contains(includeSubmatch.Match, s) {
-		// 					isExist = true
-		// 					break
-		// 				}
-		// 			}
-		// 			if isExist {
-		// 				break
-		// 			}
-		// 		}
-		// 	}
-		// }
-		// if hasInclude && !isExist {
-		// 	return false
-		// }
 	}
 	return true
 }
