@@ -13,6 +13,7 @@ type Forward struct {
 	Exclude         string
 	Include         string
 	IncludeSubmatch []IncludeSubmatch
+	SendCopy        bool
 }
 
 type IncludeSubmatch struct {
