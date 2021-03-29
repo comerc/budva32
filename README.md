@@ -61,7 +61,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Inspiration
 - etc
 
-Inspired by https://github.com/marperia/fwdbot
+Inspired by
+
+- https://github.com/marperia/fwdbot
+- https://github.com/wcsiu/telegram-client-demo (article)[https://wcsiu.github.io/2020/12/26/create-a-telegram-client-in-go-with-docker.html]
+- https://vc.ru/dev/158757-sozdanie-i-razvertyvanie-retranslyatora-telegram-kanalov-ispolzuya-python-i-heroku
 
 ## How to install tdlib
 
@@ -148,3 +152,23 @@ Forwards:
 ## Get chat list with limit
 
 -chatlist int
+
+## First start for auth
+
+from console:
+
+```
+$ go run .
+```
+
+or via docker:
+
+```
+$ docker attach telegram-forwarder
+```
+
+but then we have problem with permissions (need docker rootless mode?):
+
+```
+$ sudo chmod -R 777 ./data
+```
