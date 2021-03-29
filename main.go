@@ -1,14 +1,20 @@
 package main
 
 import (
-	"flag"
+	"crypto/subtle"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math"
+	"net"
+	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/comerc/budva32/account"
@@ -16,17 +22,11 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: упаковать в Docker (для старой Ubuntu)
-// TODO: статический tdlib
-// TODO: badger
+// TODO: reload config.yml
 // TODO: вкурить go-каналы
 // TODO: как очищать message database tdlib
 
 func main() {
-	var chatListLimit int
-	flag.IntVar(&chatListLimit, "chatlist", 0, "Get chat list with limit")
-	flag.Parse()
-
 	if err := godotenv.Load(); err != nil {
 		log.Fatalf("Error loading .env file")
 	}
@@ -57,13 +57,13 @@ func main() {
 
 	authorizer.TdlibParameters <- &client.TdlibParameters{
 		UseTestDc:              false,
-		DatabaseDirectory:      filepath.Join("tddata", account.Config.PhoneNumber+"-tdlib-db"),
-		FilesDirectory:         filepath.Join("tddata", account.Config.PhoneNumber+"-tdlib-files"),
+		DatabaseDirectory:      filepath.Join("data", "db"),
+		FilesDirectory:         filepath.Join("data", "files"),
 		UseFileDatabase:        false,
 		UseChatInfoDatabase:    false,
 		UseMessageDatabase:     true,
 		UseSecretChats:         false,
-		ApiId:                  convertToInt32(apiId),
+		ApiId:                  int32(convertToInt(apiId)),
 		ApiHash:                apiHash,
 		SystemLanguageCode:     "en",
 		DeviceModel:            "Server",
@@ -73,23 +73,27 @@ func main() {
 		IgnoreFileNames:        false,
 	}
 
-	logVerbosity := client.WithLogVerbosity(&client.SetLogVerbosityLevelRequest{
-		NewVerbosityLevel: 1,
-	})
+	logStream := func(tdlibClient *client.Client) {
+		tdlibClient.SetLogStream(&client.SetLogStreamRequest{
+			LogStream: &client.LogStreamFile{
+				Path:           filepath.Join("data", ".log"),
+				MaxFileSize:    10485760,
+				RedirectStderr: true,
+			},
+		})
+	}
 
-	tdlibClient, err := client.NewClient(authorizer, logVerbosity)
+	logVerbosity := func(tdlibClient *client.Client) {
+		tdlibClient.SetLogVerbosityLevel(&client.SetLogVerbosityLevelRequest{
+			NewVerbosityLevel: 1,
+		})
+	}
+
+	tdlibClient, err := client.NewClient(authorizer, logStream, logVerbosity)
 	if err != nil {
 		log.Fatalf("NewClient error: %s", err)
 	}
 	defer tdlibClient.Stop()
-
-	tdlibClient.SetLogStream(&client.SetLogStreamRequest{
-		LogStream: &client.LogStreamFile{
-			Path:           filepath.Join("tddata", account.Config.PhoneNumber+".log"),
-			MaxFileSize:    10485760,
-			RedirectStderr: true,
-		},
-	})
 
 	optionValue, err := tdlibClient.GetOption(&client.GetOptionRequest{
 		Name: "version",
@@ -107,31 +111,29 @@ func main() {
 
 	log.Printf("Me: %s %s [@%s]", me.FirstName, me.LastName, me.Username)
 
-	if chatListLimit > 0 {
-		chats, err := tdlibClient.GetChats(&client.GetChatsRequest{
-			ChatList:     &client.ChatListMain{},
-			Limit:        int32(chatListLimit),
-			OffsetOrder:  client.JsonInt64(int64(math.MaxInt64)),
-			OffsetChatId: int64(0),
-		})
-		if err != nil {
-			log.Fatalf("GetChats error: %s", err)
+	go func() {
+		http.HandleFunc("/favicon.ico", getFaviconHandler)
+		http.HandleFunc("/", withBasicAuth(getChatsHandler(tdlibClient)))
+		Host := getIP()
+		Port := ":4004"
+		fmt.Println("Web-server is running: http://" + Host + Port)
+		if err := http.ListenAndServe(Port, http.DefaultServeMux); err != nil {
+			log.Fatal("Error starting http server: ", err)
+			return
 		}
-		for _, chatId := range chats.ChatIds {
-			chat, err := tdlibClient.GetChat(&client.GetChatRequest{
-				ChatId: chatId,
-			})
-			if err != nil {
-				log.Fatalf("GetChat error: %s", err)
-			}
-			fmt.Println(chat.Id, chat.Title)
-		}
-		os.Exit(1)
-		return
-	}
+	}()
 
 	listener := tdlibClient.GetListener()
 	defer listener.Close()
+
+	// Handle Ctrl+C
+	ch := make(chan os.Signal, 2)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-ch
+		log.Print("Stop...")
+		os.Exit(1)
+	}()
 
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
@@ -172,27 +174,15 @@ func main() {
 			}
 		}
 	}
-
-	// Handle Ctrl+C
-	// ch := make(chan os.Signal, 2)
-	// signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
-	// go func() {
-	// 	<-ch
-	// 	os.Exit(1)
-	// }()
-
-	for {
-		time.Sleep(time.Hour)
-	}
 }
 
-func convertToInt32(s string) int32 {
+func convertToInt(s string) int {
 	i, err := strconv.Atoi(s)
 	if err != nil {
 		log.Print(err)
 		return 0
 	}
-	return int32(i)
+	return int(i)
 }
 
 var messageIds = make(map[string]int64)
@@ -330,6 +320,155 @@ func canSend(formattedText *client.FormattedText, forward *account.Forward) bool
 		if hasInclude {
 			return false
 		}
+		// variant for Include AND IncludeSubmatch (or single Include/IncludeSubmatch)
+		// hasInclude := false
+		// isExist := false
+		// if forward.Include != "" {
+		// 	hasInclude = true
+		// 	re := regexp.MustCompile("(?i)" + forward.Include)
+		// 	if re.FindString(formattedText.Text) != "" {
+		// 		isExist = true
+		// 	}
+		// }
+		// if !hasInclude || isExist {
+		// 	for _, includeSubmatch := range forward.IncludeSubmatch {
+		// 		if includeSubmatch.Regexp != "" {
+		// 			hasInclude = true
+		// 			isExist = false
+		// 			re := regexp.MustCompile("(?i)" + includeSubmatch.Regexp)
+		// 			matches := re.FindAllStringSubmatch(formattedText.Text, -1)
+		// 			for _, match := range matches {
+		// 				s := match[includeSubmatch.Group]
+		// 				if contains(includeSubmatch.Match, s) {
+		// 					isExist = true
+		// 					break
+		// 				}
+		// 			}
+		// 			if isExist {
+		// 				break
+		// 			}
+		// 		}
+		// 	}
+		// }
+		// if hasInclude && !isExist {
+		// 	return false
+		// }
 	}
 	return true
+}
+
+func withBasicAuth(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok := r.BasicAuth()
+		if !ok ||
+			subtle.ConstantTimeCompare([]byte(user), []byte(os.Getenv("BUDVA32_USER"))) != 1 ||
+			subtle.ConstantTimeCompare([]byte(pass), []byte(os.Getenv("BUDVA32_PASS"))) != 1 {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Please enter your username and password"`)
+			w.WriteHeader(401)
+			w.Write([]byte("You are unauthorized to access the application.\n"))
+			return
+		}
+		handler(w, r)
+	}
+}
+
+func getIP() string {
+	interfaces, _ := net.Interfaces()
+	for _, i := range interfaces {
+		addrs, _ := i.Addrs()
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			return ip.String()
+		}
+	}
+	return ""
+}
+
+func getFaviconHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "static/favicon.ico")
+}
+
+func getChatsHandler(tdlibClient *client.Client) func(w http.ResponseWriter, req *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		q := req.URL.Query()
+		var limit = 1000
+		if len(q["limit"]) == 1 {
+			limit = convertToInt(q["limit"][0])
+		}
+		allChats, err := getChatList(tdlibClient, limit)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+
+		retMap := make(map[string]interface{})
+		retMap["total"] = len(allChats)
+
+		var chatList []string
+		for _, chat := range allChats {
+			chatList = append(chatList, fmt.Sprintf("%d=%s", chat.Id, chat.Title))
+		}
+
+		retMap["chatList"] = chatList
+
+		ret, err := json.Marshal(retMap)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, string(ret))
+	}
+}
+
+// see https://stackoverflow.com/questions/37782348/how-to-use-getchats-in-tdlib
+func getChatList(tdlibClient *client.Client, limit int) ([]*client.Chat, error) {
+	var (
+		allChats     []*client.Chat
+		offsetOrder  = int64(math.MaxInt64)
+		offsetChatId = int64(0)
+	)
+	for len(allChats) < limit {
+		if len(allChats) > 0 {
+			lastChat := allChats[len(allChats)-1]
+			for i := 0; i < len(lastChat.Positions); i++ {
+				if lastChat.Positions[i].List.ChatListType() == client.TypeChatListMain {
+					offsetOrder = int64(lastChat.Positions[i].Order)
+				}
+			}
+			offsetChatId = lastChat.Id
+		}
+		chats, err := tdlibClient.GetChats(&client.GetChatsRequest{
+			ChatList:     &client.ChatListMain{},
+			Limit:        int32(limit - len(allChats)),
+			OffsetOrder:  client.JsonInt64(offsetOrder),
+			OffsetChatId: offsetChatId,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(chats.ChatIds) == 0 {
+			return allChats, nil
+		}
+		for _, chatId := range chats.ChatIds {
+			chat, err := tdlibClient.GetChat(&client.GetChatRequest{
+				ChatId: chatId,
+			})
+			if err == nil {
+				allChats = append(allChats, chat)
+			} else {
+				return nil, err
+			}
+		}
+	}
+	return allChats, nil
 }

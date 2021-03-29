@@ -1,0 +1,12 @@
+.git/
+data/
+.env
+config.yml
+.dockerignore
+.gitignore
+docker-compose.yml
+Dockerfile
+LICENSE
+Makefile
+README.md
+assets/

@@ -1,9 +1,3 @@
-.idea/
-tddata/
-config.yml
+data/
 .env
-
-# old version
-config.json
-accounts.json
-errors.txt
+config.yml
