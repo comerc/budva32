@@ -14,14 +14,17 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
-	"github.com/comerc/budva32/account"
+	config "github.com/comerc/budva32/config"
 	"github.com/joho/godotenv"
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: восстановить getChatsHandler
+// TODO: ForwardHandleEdited
 // TODO: data > tdata
 // TODO: Matches
 // TODO: много аккаунтов
@@ -32,6 +35,15 @@ import (
 // TODO: как очищать message database tdlib
 
 func main() {
+	// Handle Ctrl+C
+	ch := make(chan os.Signal, 2)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-ch
+		log.Print("Stop...")
+		os.Exit(1)
+	}()
+
 	if err := godotenv.Load(); err != nil {
 		log.Fatalf("Error loading .env file")
 	}
@@ -40,17 +52,52 @@ func main() {
 		apiHash = os.Getenv("BUDVA32_API_HASH")
 	)
 
-	if err := account.ReadConfigFile(); err != nil {
+	if err := config.Load(); err != nil {
 		log.Fatalf("Can't initialise config: %s", err)
 	}
-	forwards := account.Config.Forwards
-	for _, forward := range forwards {
-		for _, dscChatId := range forward.To {
-			if forward.From == dscChatId {
-				log.Fatalf("Invalid config. Destination Id cannot be equal source Id: %d", dscChatId)
+	accounts := config.GetAccounts()
+	for _, account := range accounts {
+		forwards := account.Forwards
+		for _, forward := range forwards {
+			for _, dscChatId := range forward.To {
+				if forward.From == dscChatId {
+					log.Fatalf("Invalid config. Destination Id cannot be equal source Id: %d", dscChatId)
+				}
 			}
 		}
 	}
+	var instances = make(map[string]*client.Client)
+	for _, account := range accounts {
+		func(account config.Account) {
+			instance := instances[account.PhoneNumber]
+			go runClient(apiId, apiHash, &account, instance)
+		}(account)
+	}
+
+	http.HandleFunc("/favicon.ico", getFaviconHandler)
+	// http.HandleFunc("/", withBasicAuth(getChatsHandler(tdlibClient)))
+	http.HandleFunc("/", handler)
+	Host := getIP()
+	Port := ":4004"
+	fmt.Println("Web-server is running: http://" + Host + Port)
+	if err := http.ListenAndServe(Port, http.DefaultServeMux); err != nil {
+		log.Fatal("Error starting http server: ", err)
+		return
+	}
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
+}
+
+var mu sync.Mutex
+
+func runClient(apiId, apiHash string, account *config.Account, instance *client.Client) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	// workaround for "argument instance is overwritten before first use (SA4009)"
+	_ = instance
 
 	// client authorizer
 	authorizer := client.ClientAuthorizer()
@@ -62,8 +109,8 @@ func main() {
 
 	authorizer.TdlibParameters <- &client.TdlibParameters{
 		UseTestDc:              false,
-		DatabaseDirectory:      filepath.Join("data", "db"),
-		FilesDirectory:         filepath.Join("data", "files"),
+		DatabaseDirectory:      filepath.Join("tdata", account.PhoneNumber, "db"),
+		FilesDirectory:         filepath.Join("tdata", account.PhoneNumber, "files"),
 		UseFileDatabase:        false,
 		UseChatInfoDatabase:    false,
 		UseMessageDatabase:     true,
@@ -78,29 +125,30 @@ func main() {
 		IgnoreFileNames:        false,
 	}
 
-	logStream := func(tdlibClient *client.Client) {
-		tdlibClient.SetLogStream(&client.SetLogStreamRequest{
+	logStream := func(instance *client.Client) {
+		instance.SetLogStream(&client.SetLogStreamRequest{
 			LogStream: &client.LogStreamFile{
-				Path:           filepath.Join("data", ".log"),
+				Path:           filepath.Join("tdata", ".log"),
 				MaxFileSize:    10485760,
 				RedirectStderr: true,
 			},
 		})
 	}
 
-	logVerbosity := func(tdlibClient *client.Client) {
-		tdlibClient.SetLogVerbosityLevel(&client.SetLogVerbosityLevelRequest{
+	logVerbosity := func(instance *client.Client) {
+		instance.SetLogVerbosityLevel(&client.SetLogVerbosityLevelRequest{
 			NewVerbosityLevel: 1,
 		})
 	}
 
-	tdlibClient, err := client.NewClient(authorizer, logStream, logVerbosity)
+	var err error
+	instance, err = client.NewClient(authorizer, logStream, logVerbosity)
 	if err != nil {
 		log.Fatalf("NewClient error: %s", err)
 	}
-	defer tdlibClient.Stop()
+	defer instance.Stop()
 
-	optionValue, err := tdlibClient.GetOption(&client.GetOptionRequest{
+	optionValue, err := instance.GetOption(&client.GetOptionRequest{
 		Name: "version",
 	})
 	if err != nil {
@@ -109,36 +157,21 @@ func main() {
 
 	log.Printf("TDLib version: %s", optionValue.(*client.OptionValueString).Value)
 
-	me, err := tdlibClient.GetMe()
+	me, err := instance.GetMe()
 	if err != nil {
 		log.Fatalf("GetMe error: %s", err)
 	}
 
 	log.Printf("Me: %s %s [@%s]", me.FirstName, me.LastName, me.Username)
 
-	go func() {
-		http.HandleFunc("/favicon.ico", getFaviconHandler)
-		http.HandleFunc("/", withBasicAuth(getChatsHandler(tdlibClient)))
-		Host := getIP()
-		Port := ":4004"
-		fmt.Println("Web-server is running: http://" + Host + Port)
-		if err := http.ListenAndServe(Port, http.DefaultServeMux); err != nil {
-			log.Fatal("Error starting http server: ", err)
-			return
-		}
-	}()
+	if account.PhoneNumber != me.PhoneNumber {
+		log.Fatalf("Invalid PhoneNumber: %s (expected: %s)", me.PhoneNumber, account.PhoneNumber)
+	}
 
-	listener := tdlibClient.GetListener()
+	listener := instance.GetListener()
 	defer listener.Close()
 
-	// Handle Ctrl+C
-	ch := make(chan os.Signal, 2)
-	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-ch
-		log.Print("Stop...")
-		os.Exit(1)
-	}()
+	mu.Unlock()
 
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
@@ -146,23 +179,23 @@ func main() {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
 				src := updateNewMessage.Message
 				formattedText := getFormattedText(src.Content)
-				for _, forward := range forwards {
+				for _, forward := range account.Forwards {
 					if src.ChatId == forward.From {
 						isOther := false
 						if canSend(formattedText, &forward, &isOther) {
 							for _, dscChatId := range forward.To {
-								forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
+								forwardNewMessage(instance, src, dscChatId, forward.SendCopy)
 							}
 						} else if isOther && forward.Other != 0 {
 							dscChatId := forward.Other
-							forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
+							forwardNewMessage(instance, src, dscChatId, forward.SendCopy)
 						}
 					}
 				}
 			}
 			// TODO: кнопки под сообщением генерируют UpdateMessageEdited, плюс пускай бот отвечает только на новые сообщения
 			// } else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
-			// 	src, err := tdlibClient.GetMessage(&client.GetMessageRequest{
+			// 	src, err := instance.GetMessage(&client.GetMessageRequest{
 			// 		ChatId:    updateMessageEdited.ChatId,
 			// 		MessageId: updateMessageEdited.MessageId,
 			// 	})
@@ -171,25 +204,25 @@ func main() {
 			// 		continue
 			// 	}
 			// 	formattedText := getFormattedText(src.Content)
-			// 	for _, forward := range forwards {
+			// 	for _, forward := range account.Forwards {
 			// 		if src.ChatId == forward.From {
 			// 			isOther := false
 			// 			if canSend(formattedText, &forward, &isOther) {
 			// 				for _, dscChatId := range forward.To {
 			// 					if formattedText == nil {
-			// 						forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
+			// 						forwardNewMessage(instance, src, dscChatId, forward.SendCopy)
 			// 						// TODO: ещё одно сообщение со ссылкой на исходник редактирования
 			// 					} else {
-			// 						forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
+			// 						forwardMessageEdited(instance, formattedText, src.ChatId, src.Id, dscChatId)
 			// 					}
 			// 				}
 			// 			} else if isOther && forward.Other != 0 {
 			// 				dscChatId := forward.Other
 			// 				if formattedText == nil {
-			// 					forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
+			// 					forwardNewMessage(instance, src, dscChatId, forward.SendCopy)
 			// 					// TODO: ещё одно сообщение со ссылкой на исходник редактирования
 			// 				} else {
-			// 					forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
+			// 					forwardMessageEdited(instance, formattedText, src.ChatId, src.Id, dscChatId)
 			// 				}
 			// 			}
 			// 		}
@@ -311,7 +344,7 @@ func contains(a []string, s string) bool {
 	return false
 }
 
-func canSend(formattedText *client.FormattedText, forward *account.Forward, isOther *bool) bool {
+func canSend(formattedText *client.FormattedText, forward *config.Forward, isOther *bool) bool {
 	*isOther = false
 	if formattedText == nil {
 		hasInclude := false

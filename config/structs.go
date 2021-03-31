@@ -1,8 +1,13 @@
 package account
 
-const ConfigFile = "config.yml"
+const fileName = "config.yml"
 
-type AccountConfig struct {
+type Config struct {
+	Accounts []Account
+	// Matches  []Match
+}
+
+type Account struct {
 	PhoneNumber string
 	Forwards    []Forward
 }
@@ -22,3 +27,8 @@ type IncludeSubmatch struct {
 	Group  int64
 	Match  []string
 }
+
+// type Match struct {
+// 	Name   string
+// 	Values []string
+// }
