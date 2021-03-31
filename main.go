@@ -22,6 +22,11 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: data > tdata
+// TODO: Matches
+// TODO: много аккаунтов
+// TODO: port via config BUDVA32_PORT=4004
+// TODO: сообщения обновляются из-за прикрепленных кнопок
 // TODO: reload & edit config.yml via web
 // TODO: вкурить go-каналы
 // TODO: как очищать message database tdlib
@@ -154,40 +159,42 @@ func main() {
 						}
 					}
 				}
-			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
-				src, err := tdlibClient.GetMessage(&client.GetMessageRequest{
-					ChatId:    updateMessageEdited.ChatId,
-					MessageId: updateMessageEdited.MessageId,
-				})
-				if err != nil {
-					log.Print(err)
-					continue
-				}
-				formattedText := getFormattedText(src.Content)
-				for _, forward := range forwards {
-					if src.ChatId == forward.From {
-						isOther := false
-						if canSend(formattedText, &forward, &isOther) {
-							for _, dscChatId := range forward.To {
-								if formattedText == nil {
-									forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
-									// TODO: ещё одно сообщение со ссылкой на исходник редактирования
-								} else {
-									forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
-								}
-							}
-						} else if isOther && forward.Other != 0 {
-							dscChatId := forward.Other
-							if formattedText == nil {
-								forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
-								// TODO: ещё одно сообщение со ссылкой на исходник редактирования
-							} else {
-								forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
-							}
-						}
-					}
-				}
 			}
+			// TODO: кнопки под сообщением генерируют UpdateMessageEdited, плюс пускай бот отвечает только на новые сообщения
+			// } else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
+			// 	src, err := tdlibClient.GetMessage(&client.GetMessageRequest{
+			// 		ChatId:    updateMessageEdited.ChatId,
+			// 		MessageId: updateMessageEdited.MessageId,
+			// 	})
+			// 	if err != nil {
+			// 		log.Print(err)
+			// 		continue
+			// 	}
+			// 	formattedText := getFormattedText(src.Content)
+			// 	for _, forward := range forwards {
+			// 		if src.ChatId == forward.From {
+			// 			isOther := false
+			// 			if canSend(formattedText, &forward, &isOther) {
+			// 				for _, dscChatId := range forward.To {
+			// 					if formattedText == nil {
+			// 						forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
+			// 						// TODO: ещё одно сообщение со ссылкой на исходник редактирования
+			// 					} else {
+			// 						forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
+			// 					}
+			// 				}
+			// 			} else if isOther && forward.Other != 0 {
+			// 				dscChatId := forward.Other
+			// 				if formattedText == nil {
+			// 					forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
+			// 					// TODO: ещё одно сообщение со ссылкой на исходник редактирования
+			// 				} else {
+			// 					forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
+			// 				}
+			// 			}
+			// 		}
+			// 	}
+			// }
 		}
 	}
 }

@@ -1,6 +1,6 @@
 # budva32
 
-Telegram-Forwarder
+Telegram-Forwarder (UNIX-way)
 
 ## How to install tdlib (for use w/o docker)
 
@@ -37,16 +37,21 @@ $ sudo chmod -R 777 ./data
 ## config.yml example
 
 ```yml
-PhoneNumber: '78901234567'
-Forwards:
-  - From: -1234
-    To: [-4321, -8888]
-    Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
-    Include: '#ARK|#Идеи_покупок|#ОТЧЕТЫ'
-    IncludeSubmatch:
-      - Regexp: '(^|[^A-Z])\$([A-Z]+)'
-        Group: 2
-        Match: ['F', 'GM', 'TSLA']
+Accounts:
+	-	PhoneNumber: '71112223344'
+		Forwards:
+			- From: -2222
+				To: [-1111]
+	-	PhoneNumber: '78901234567'
+		Forwards:
+			- From: -1234
+				To: [-4321, -8888]
+				Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
+				Include: '#ARK|#Идеи_покупок|#ОТЧЕТЫ'
+				IncludeSubmatch:
+					- Regexp: '(^|[^A-Z])\$([A-Z]+)'
+						Group: 2
+						Match: ['F', 'GM', 'TSLA']
 ```
 
 ## Get chat list with limit (optional)
