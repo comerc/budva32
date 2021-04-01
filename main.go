@@ -22,6 +22,7 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: телефон и код через веб-морду
 // TODO: how to copy Album (via SendMessageAlbum)
 // TODO: сообщения обновляются из-за прикрепленных кнопок
 // TODO: пускай бот segezha4 отвечает только на новые сообщения?
