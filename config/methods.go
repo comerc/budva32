@@ -41,14 +41,14 @@ func Load() error {
 		log.Printf("Failed to unmarshal file %s: %s", fileName, err)
 	}
 
-	if len(config.Accounts) == 0 || config.Accounts[0].PhoneNumber == "" {
-		err = errors.New("empty Accounts")
+	if config.PhoneNumber == "" {
+		err = errors.New("empty PhoneNumber")
 		log.Printf("Failed to read field in file %s: %s", fileName, err)
 	}
 
 	return err
 }
 
-func GetAccounts() []Account {
-	return config.Accounts
+func GetConfig() *Config {
+	return &config
 }

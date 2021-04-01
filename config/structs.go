@@ -3,13 +3,9 @@ package account
 const fileName = "config.yml"
 
 type Config struct {
-	Accounts []Account
-	// Matches  []Match
-}
-
-type Account struct {
 	PhoneNumber string
 	Forwards    []Forward
+	// Matches  []Match
 }
 
 type Forward struct {
@@ -20,6 +16,7 @@ type Forward struct {
 	Include         string
 	IncludeSubmatch []IncludeSubmatch
 	SendCopy        bool
+	WithEdited      bool
 }
 
 type IncludeSubmatch struct {
