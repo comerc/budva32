@@ -28,15 +28,6 @@ import (
 // TODO: reload & edit config.yml via web
 
 func main() {
-	// Handle Ctrl+C
-	ch := make(chan os.Signal, 2)
-	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-ch
-		log.Print("Stop...")
-		os.Exit(1)
-	}()
-
 	if err := godotenv.Load(); err != nil {
 		log.Fatalf("Error loading .env file")
 	}
@@ -137,6 +128,15 @@ func main() {
 
 	listener := tdlibClient.GetListener()
 	defer listener.Close()
+
+	// Handle Ctrl+C
+	ch := make(chan os.Signal, 2)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-ch
+		log.Print("Stop...")
+		os.Exit(1)
+	}()
 
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
