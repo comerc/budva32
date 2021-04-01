@@ -22,12 +22,9 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: кнопки под сообщением генерируют UpdateMessageEdited,
-// TODO: пускай бот segezha4 отвечает только на новые сообщения?
-// TODO: Matches
 // TODO: how to copy Album (via SendMessageAlbum)
-
 // TODO: сообщения обновляются из-за прикрепленных кнопок
+// TODO: пускай бот segezha4 отвечает только на новые сообщения?
 // TODO: reload & edit config.yml via web
 
 func main() {
@@ -301,8 +298,8 @@ func getFormattedText(messageContent client.MessageContent) *client.FormattedTex
 	return formattedText
 }
 
-func contains(a []string, s string) bool {
-	for _, t := range a {
+func contains(a *[]string, s string) bool {
+	for _, t := range *a {
 		if t == s {
 			return true
 		}
@@ -349,7 +346,7 @@ func canSend(formattedText *client.FormattedText, forward *config.Forward, isOth
 				matches := re.FindAllStringSubmatch(formattedText.Text, -1)
 				for _, match := range matches {
 					s := match[includeSubmatch.Group]
-					if contains(includeSubmatch.Match, s) {
+					if contains(&includeSubmatch.Match, s) {
 						return true
 					}
 				}

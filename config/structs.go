@@ -5,7 +5,6 @@ const fileName = "config.yml"
 type Config struct {
 	PhoneNumber string
 	Forwards    []Forward
-	// Matches  []Match
 }
 
 type Forward struct {
@@ -24,8 +23,3 @@ type IncludeSubmatch struct {
 	Group  int64
 	Match  []string
 }
-
-// type Match struct {
-// 	Name   string
-// 	Values []string
-// }
