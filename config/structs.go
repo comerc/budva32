@@ -1,4 +1,4 @@
-package account
+package config
 
 const fileName = "config.yml"
 

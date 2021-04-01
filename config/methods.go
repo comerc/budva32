@@ -1,4 +1,4 @@
-package account
+package config
 
 import (
 	"encoding/json"
@@ -10,10 +10,9 @@ import (
 	"github.com/ghodss/yaml"
 )
 
-var config Config
-
-func Load() error {
+func Load() (*Config, error) {
 	var (
+		config   *Config
 		err      error
 		file     *os.File
 		yamlData []byte
@@ -46,9 +45,5 @@ func Load() error {
 		log.Printf("Failed to read field in file %s: %s", fileName, err)
 	}
 
-	return err
-}
-
-func GetConfig() *Config {
-	return &config
+	return config, err
 }

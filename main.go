@@ -37,10 +37,10 @@ func main() {
 		port    = os.Getenv("BUDVA32_PORT")
 	)
 
-	if err := config.Load(); err != nil {
+	config, err := config.Load()
+	if err != nil {
 		log.Fatalf("Can't initialise config: %s", err)
 	}
-	config := config.GetConfig()
 	forwards := config.Forwards
 	for _, forward := range forwards {
 		for _, dscChatId := range forward.To {
@@ -97,6 +97,8 @@ func main() {
 		log.Fatalf("NewClient error: %s", err)
 	}
 	defer tdlibClient.Stop()
+
+	log.Print("Start...")
 
 	optionValue, err := tdlibClient.GetOption(&client.GetOptionRequest{
 		Name: "version",
