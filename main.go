@@ -260,7 +260,7 @@ func forwardNewMessage(tdlibClient *client.Client, src *client.Message, dscChatI
 	})
 	if err != nil {
 		log.Print(err)
-	} else if forwardedMessages.TotalCount != 1 {
+	} else if forwardedMessages.TotalCount == 0 {
 		log.Print("Invalid TotalCount")
 	} else {
 		dsc := forwardedMessages.Messages[0]
