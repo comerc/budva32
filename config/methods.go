@@ -75,7 +75,7 @@ func Watch(reload Reload) {
 		for {
 			select {
 			case event := <-w.Event:
-				// fmt.Println(event) // Print the event's info.
+				log.Print(event) // Print the event's info.
 				_ = event
 				reload()
 			case err := <-w.Error:
