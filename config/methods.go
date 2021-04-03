@@ -10,9 +10,9 @@ import (
 	"github.com/ghodss/yaml"
 )
 
-func Load() (*Config, error) {
+func Load() (*Data, error) {
 	var (
-		config   *Config
+		data     *Data
 		err      error
 		file     *os.File
 		yamlData []byte
@@ -35,15 +35,15 @@ func Load() (*Config, error) {
 		log.Printf("Failed to convert file %s with YAMLToJSON: %s", fileName, err)
 	}
 
-	err = json.Unmarshal(jsonData, &config)
+	err = json.Unmarshal(jsonData, &data)
 	if err != nil {
 		log.Printf("Failed to unmarshal file %s: %s", fileName, err)
 	}
 
-	if config.PhoneNumber == "" {
+	if data.PhoneNumber == "" {
 		err = errors.New("empty PhoneNumber")
 		log.Printf("Failed to read field in file %s: %s", fileName, err)
 	}
 
-	return config, err
+	return data, err
 }

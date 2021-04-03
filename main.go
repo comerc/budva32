@@ -22,14 +22,25 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: телефон и код через веб-морду
-// TODO: how to copy Album (via SendMessageAlbum)
+// TODO: reload & edit config.yml via web
+// TODO: how to copy Album (via SendMessageAlbum) https://github.com/tdlib/td/issues/1482
 // TODO: сообщения обновляются из-за прикрепленных кнопок
 // TODO: пускай бот segezha4 отвечает только на новые сообщения?
-// TODO: reload & edit config.yml via web
+
+const (
+	projectName = "budva32"
+)
+
+var (
+	inputCh     = make(chan string, 1)
+	outputCh    = make(chan string, 1)
+	tdlibClient *client.Client
+)
 
 func main() {
-	if err := godotenv.Load(); err != nil {
+	var err error
+
+	if err = godotenv.Load(); err != nil {
 		log.Fatalf("Error loading .env file")
 	}
 	var (
@@ -38,11 +49,13 @@ func main() {
 		port    = os.Getenv("BUDVA32_PORT")
 	)
 
-	config, err := config.Load()
+	var configData *config.Data
+
+	configData, err = config.Load()
 	if err != nil {
 		log.Fatalf("Can't initialise config: %s", err)
 	}
-	forwards := config.Forwards
+	forwards := configData.Forwards
 	for _, forward := range forwards {
 		for _, dscChatId := range forward.To {
 			if forward.From == dscChatId {
@@ -51,18 +64,56 @@ func main() {
 		}
 	}
 
+	go func() {
+		http.HandleFunc("/favicon.ico", getFaviconHandler)
+		http.HandleFunc("/", withBasicAuth(withAuthentiation(getChatsHandler)))
+		host := getIP()
+		port := ":" + port
+		fmt.Println("Web-server is running: http://" + host + port)
+		if err := http.ListenAndServe(port, http.DefaultServeMux); err != nil {
+			log.Fatal("Error starting http server: ", err)
+			return
+		}
+	}()
+
 	// client authorizer
 	authorizer := client.ClientAuthorizer()
-	go client.CliInteractor(authorizer)
+	go func() {
+		for {
+			state, ok := <-authorizer.State
+			if !ok {
+				return
+			}
+			switch state.AuthorizationStateType() {
+			case client.TypeAuthorizationStateWaitPhoneNumber:
+				authorizer.PhoneNumber <- configData.PhoneNumber
+			case client.TypeAuthorizationStateWaitCode:
+				outputCh <- fmt.Sprintf("Enter code for %s: ", configData.PhoneNumber)
+				code := <-inputCh
+				authorizer.Code <- code
+			case client.TypeAuthorizationStateWaitPassword:
+				outputCh <- fmt.Sprintf("Enter password for %s: ", configData.PhoneNumber)
+				password := <-inputCh
+				authorizer.Password <- password
+			case client.TypeAuthorizationStateReady:
+				return
+			}
+		}
+	}()
 
 	// or bot authorizer
 	// botToken := "000000000:gsVCGG5YbikxYHC7bP5vRvmBqJ7Xz6vG6td"
 	// authorizer := client.BotAuthorizer(botToken)
 
+	path := filepath.Join(".", "tdata")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		os.Mkdir(path, os.ModePerm)
+	}
+
 	authorizer.TdlibParameters <- &client.TdlibParameters{
 		UseTestDc:              false,
-		DatabaseDirectory:      filepath.Join("tdata", "db"),
-		FilesDirectory:         filepath.Join("tdata", "files"),
+		DatabaseDirectory:      filepath.Join(path, "db"),
+		FilesDirectory:         filepath.Join(path, "files"),
 		UseFileDatabase:        false,
 		UseChatInfoDatabase:    false,
 		UseMessageDatabase:     true,
@@ -80,7 +131,7 @@ func main() {
 	logStream := func(tdlibClient *client.Client) {
 		tdlibClient.SetLogStream(&client.SetLogStreamRequest{
 			LogStream: &client.LogStreamFile{
-				Path:           filepath.Join("tdata", ".log"),
+				Path:           filepath.Join(path, ".log"),
 				MaxFileSize:    10485760,
 				RedirectStderr: true,
 			},
@@ -93,41 +144,29 @@ func main() {
 		})
 	}
 
-	tdlibClient, err := client.NewClient(authorizer, logStream, logVerbosity)
+	tdlibClient, err = client.NewClient(authorizer, logStream, logVerbosity)
 	if err != nil {
 		log.Fatalf("NewClient error: %s", err)
 	}
 	defer tdlibClient.Stop()
 
+	outputCh <- "Ready!"
+
 	log.Print("Start...")
 
-	optionValue, err := tdlibClient.GetOption(&client.GetOptionRequest{
+	if optionValue, err := tdlibClient.GetOption(&client.GetOptionRequest{
 		Name: "version",
-	})
-	if err != nil {
+	}); err != nil {
 		log.Fatalf("GetOption error: %s", err)
+	} else {
+		log.Printf("TDLib version: %s", optionValue.(*client.OptionValueString).Value)
 	}
 
-	log.Printf("TDLib version: %s", optionValue.(*client.OptionValueString).Value)
-
-	me, err := tdlibClient.GetMe()
-	if err != nil {
+	if me, err := tdlibClient.GetMe(); err != nil {
 		log.Fatalf("GetMe error: %s", err)
+	} else {
+		log.Printf("Me: %s %s [@%s]", me.FirstName, me.LastName, me.Username)
 	}
-
-	log.Printf("Me: %s %s [@%s]", me.FirstName, me.LastName, me.Username)
-
-	go func() {
-		http.HandleFunc("/favicon.ico", getFaviconHandler)
-		http.HandleFunc("/", withBasicAuth(getChatsHandler(tdlibClient)))
-		host := getIP()
-		port := ":" + port
-		fmt.Println("Web-server is running: http://" + host + port)
-		if err := http.ListenAndServe(port, http.DefaultServeMux); err != nil {
-			log.Fatal("Error starting http server: ", err)
-			return
-		}
-	}()
 
 	listener := tdlibClient.GetListener()
 	defer listener.Close()
@@ -378,6 +417,30 @@ func withBasicAuth(handler http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func withAuthentiation(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if outputCh != nil {
+			if r.Method == "POST" {
+				r.ParseForm()
+				if len(r.PostForm["input"]) == 1 {
+					input := r.PostForm["input"][0]
+					inputCh <- input
+				}
+				http.Redirect(w, r, "/", http.StatusSeeOther)
+				return
+			}
+			output := <-outputCh
+			if output != "Ready!" {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				io.WriteString(w, fmt.Sprintf(`<html><head><title>%s</title></head><body><form method="post">%s<input autocomplete="off" name="input" /><input type="submit" /></form></body></html>`, projectName, output))
+				return
+			}
+			outputCh = nil
+		}
+		handler(w, r)
+	}
+}
+
 func getIP() string {
 	interfaces, _ := net.Interfaces()
 	for _, i := range interfaces {
@@ -400,40 +463,33 @@ func getFaviconHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "static/favicon.ico")
 }
 
-func getChatsHandler(tdlibClient *client.Client) func(w http.ResponseWriter, req *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		q := req.URL.Query()
-		var limit = 1000
-		if len(q["limit"]) == 1 {
-			limit = convertToInt(q["limit"][0])
-		}
-		allChats, err := getChatList(tdlibClient, limit)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
-			return
-		}
-
-		retMap := make(map[string]interface{})
-		retMap["total"] = len(allChats)
-
-		var chatList []string
-		for _, chat := range allChats {
-			chatList = append(chatList, fmt.Sprintf("%d=%s", chat.Id, chat.Title))
-		}
-
-		retMap["chatList"] = chatList
-
-		ret, err := json.Marshal(retMap)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, string(ret))
+func getChatsHandler(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	var limit = 1000
+	if len(q["limit"]) == 1 {
+		limit = convertToInt(q["limit"][0])
 	}
+	allChats, err := getChatList(tdlibClient, limit)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	retMap := make(map[string]interface{})
+	retMap["total"] = len(allChats)
+	var chatList []string
+	for _, chat := range allChats {
+		chatList = append(chatList, fmt.Sprintf("%d=%s", chat.Id, chat.Title))
+	}
+	retMap["chatList"] = chatList
+	ret, err := json.Marshal(retMap)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	io.WriteString(w, string(ret))
 }
 
 // see https://stackoverflow.com/questions/37782348/how-to-use-getchats-in-tdlib

@@ -2,7 +2,7 @@ package config
 
 const fileName = "config.yml"
 
-type Config struct {
+type Data struct {
 	PhoneNumber string
 	Forwards    []Forward
 }

@@ -12,7 +12,11 @@ $ sudo apt-get install build-essential gperf ccache zlib1g-dev libssl-dev librea
 
 Or use [TDLib build instructions](https://tdlib.github.io/td/build.html)
 
-## First start for auth
+## First start for Telegram auth via web
+
+http://localhost:4004
+
+## Draft (old variants for auth)
 
 from console:
 
@@ -113,5 +117,5 @@ func getMessageLink(tdlibClient *client.Client, ChatId, MessageId int64) {
 ## Inspired by
 
 - https://github.com/marperia/fwdbot
-- https://github.com/wcsiu/telegram-client-demo (article)[https://wcsiu.github.io/2020/12/26/create-a-telegram-client-in-go-with-docker.html]
+- https://github.com/wcsiu/telegram-client-demo +[article](https://wcsiu.github.io/2020/12/26/create-a-telegram-client-in-go-with-docker.html)
 - https://vc.ru/dev/158757-sozdanie-i-razvertyvanie-retranslyatora-telegram-kanalov-ispolzuya-python-i-heroku
