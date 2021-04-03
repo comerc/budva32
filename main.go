@@ -34,6 +34,7 @@ const (
 var (
 	inputCh     = make(chan string, 1)
 	outputCh    = make(chan string, 1)
+	forwards    *[]config.Forward
 	tdlibClient *client.Client
 )
 
@@ -44,25 +45,19 @@ func main() {
 		log.Fatalf("Error loading .env file")
 	}
 	var (
-		apiId   = os.Getenv("BUDVA32_API_ID")
-		apiHash = os.Getenv("BUDVA32_API_HASH")
-		port    = os.Getenv("BUDVA32_PORT")
+		apiId       = os.Getenv("BUDVA32_API_ID")
+		apiHash     = os.Getenv("BUDVA32_API_HASH")
+		phonenumber = os.Getenv("BUDVA32_PHONENUMBER")
+		port        = os.Getenv("BUDVA32_PORT")
 	)
 
-	var configData *config.Data
-
-	configData, err = config.Load()
-	if err != nil {
-		log.Fatalf("Can't initialise config: %s", err)
-	}
-	forwards := configData.Forwards
-	for _, forward := range forwards {
-		for _, dscChatId := range forward.To {
-			if forward.From == dscChatId {
-				log.Fatalf("Invalid config. Destination Id cannot be equal source Id: %d", dscChatId)
-			}
+	go config.Watch(func() {
+		forwards, err = config.Load()
+		if err != nil {
+			log.Fatalf("Can't initialise config: %s", err)
 		}
-	}
+		fmt.Printf("%#v\n", forwards)
+	})
 
 	go func() {
 		http.HandleFunc("/favicon.ico", getFaviconHandler)
@@ -86,13 +81,13 @@ func main() {
 			}
 			switch state.AuthorizationStateType() {
 			case client.TypeAuthorizationStateWaitPhoneNumber:
-				authorizer.PhoneNumber <- configData.PhoneNumber
+				authorizer.PhoneNumber <- phonenumber
 			case client.TypeAuthorizationStateWaitCode:
-				outputCh <- fmt.Sprintf("Enter code for %s: ", configData.PhoneNumber)
+				outputCh <- fmt.Sprintf("Enter code for %s: ", phonenumber)
 				code := <-inputCh
 				authorizer.Code <- code
 			case client.TypeAuthorizationStateWaitPassword:
-				outputCh <- fmt.Sprintf("Enter password for %s: ", configData.PhoneNumber)
+				outputCh <- fmt.Sprintf("Enter password for %s: ", phonenumber)
 				password := <-inputCh
 				authorizer.Password <- password
 			case client.TypeAuthorizationStateReady:
@@ -183,7 +178,7 @@ func main() {
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
-				for _, forward := range forwards {
+				for _, forward := range *forwards {
 					src := updateNewMessage.Message
 					if src.ChatId == forward.From {
 						formattedText := getFormattedText(src.Content)
@@ -199,7 +194,7 @@ func main() {
 					}
 				}
 			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
-				for _, forward := range forwards {
+				for _, forward := range *forwards {
 					src := updateMessageEdited
 					if src.ChatId == forward.From && forward.WithEdited {
 						src, err := tdlibClient.GetMessage(&client.GetMessageRequest{

@@ -12,6 +12,15 @@ $ sudo apt-get install build-essential gperf ccache zlib1g-dev libssl-dev librea
 
 Or use [TDLib build instructions](https://tdlib.github.io/td/build.html)
 
+## .env
+
+```
+BUDVA32_API_ID=1234567
+BUDVA32_API_HASH=XXXXXXXX
+BUDVA32_PHONENUMBER=78901234567
+BUDVA32_PORT=4004
+```
+
 ## First start for Telegram auth via web
 
 http://localhost:4004
@@ -35,22 +44,24 @@ $ docker attach telegram-forwarder
 but then we have problem with permissions (may be need docker rootless mode?):
 
 ```
-$ sudo chmod -R 777 ./data
+$ sudo chmod -R 777 ./tdata
 ```
 
 ## config.yml example
 
 ```yml
-PhoneNumber: '78901234567'
-Forwards:
-	- From: -1234
-		To: [-4321, -8888]
-		Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
-		Include: '#ARK|#Идеи_покупок|#ОТЧЕТЫ'
-		IncludeSubmatch:
-			- Regexp: '(^|[^A-Z])\$([A-Z]+)'
-				Group: 2
-				Match: ['F', 'GM', 'TSLA']
+- From: -1111
+	To: [-2222]
+- From: -1234
+	To: [-4321, -8888]
+  Other: -4444
+	WithEdited: true
+	Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
+	Include: '#ARK|#Идеи_покупок|#ОТЧЕТЫ'
+	IncludeSubmatch:
+		- Regexp: '(^|[^A-Z])\$([A-Z]+)'
+			Group: 2
+			Match: ['F', 'GM', 'TSLA']
 ```
 
 ## Get chat list with limit (optional)

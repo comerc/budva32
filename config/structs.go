@@ -2,11 +2,6 @@ package config
 
 const fileName = "config.yml"
 
-type Data struct {
-	PhoneNumber string
-	Forwards    []Forward
-}
-
 type Forward struct {
 	From            int64
 	To              []int64
