@@ -22,7 +22,6 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: reload & edit config.yml via web
 // TODO: how to copy Album (via SendMessageAlbum) https://github.com/tdlib/td/issues/1482
 // TODO: сообщения обновляются из-за прикрепленных кнопок
 // TODO: пускай бот segezha4 отвечает только на новые сообщения?
@@ -56,7 +55,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Can't initialise config: %s", err)
 		}
-		fmt.Printf("%#v\n", forwards)
+		// fmt.Printf("%#v\n", forwards)
 	})
 
 	go func() {
