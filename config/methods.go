@@ -57,9 +57,7 @@ func Load() (*[]Forward, error) {
 	return forwards, err
 }
 
-type Reload func()
-
-func Watch(reload Reload) {
+func Watch(reload func()) {
 	w := watcher.New()
 
 	// SetMaxEvents to 1 to allow at most 1 event's to be received
@@ -98,3 +96,16 @@ func Watch(reload Reload) {
 		log.Fatalln(err)
 	}
 }
+
+// panic: runtime error: invalid memory address or nil pointer dereference
+// [signal SIGSEGV: segmentation violation code=0x1 addr=0x8 pc=0x6a52d1]
+
+// goroutine 5 [running]:
+// github.com/comerc/budva32/config.Load(0x0, 0x0, 0x0)
+//         /build/config/methods.go:48 +0x1b1
+// main.main.func1()
+//         /build/main.go:54 +0x2f
+// github.com/comerc/budva32/config.Watch.func1(0xc000090000, 0xc000113000)
+//         /build/config/methods.go:80 +0x235
+// created by github.com/comerc/budva32/config.Watch
+//         /build/config/methods.go:74 +0xa5

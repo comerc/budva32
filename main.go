@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	config "github.com/comerc/budva32/config"
+	"github.com/comerc/budva32/config"
 	"github.com/joho/godotenv"
 	"github.com/zelenin/go-tdlib/client"
 )
@@ -53,9 +53,8 @@ func main() {
 	go config.Watch(func() {
 		forwards, err = config.Load()
 		if err != nil {
-			log.Fatalf("Can't initialise config: %s", err)
+			log.Printf("Can't initialise config: %s", err)
 		}
-		// fmt.Printf("%#v\n", forwards)
 	})
 
 	go func() {
@@ -181,15 +180,22 @@ func main() {
 					src := updateNewMessage.Message
 					if src.ChatId == forward.From {
 						formattedText := getFormattedText(src.Content)
+						log.Printf("updateNewMessage start ChatId: %d Id: %d hasFormattedText: %t", src.ChatId, src.Id, formattedText != nil)
+						isCanSend := false
 						isOther := false
+						var forwardedTo []int64
 						if canSend(formattedText, &forward, &isOther) {
+							isCanSend = true
 							for _, dscChatId := range forward.To {
 								forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
+								forwardedTo = append(forwardedTo, dscChatId)
 							}
 						} else if isOther && forward.Other != 0 {
 							dscChatId := forward.Other
 							forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
+							forwardedTo = append(forwardedTo, dscChatId)
 						}
+						log.Printf("updateNewMessage final isCanSend: %t isOther: %t forwardedTo: %v", isCanSend, isOther, forwardedTo)
 					}
 				}
 			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
@@ -205,8 +211,12 @@ func main() {
 							continue
 						}
 						formattedText := getFormattedText(src.Content)
+						log.Printf("updateMessageEdited start ChatId: %d Id: %d hasFormattedText: %t", src.ChatId, src.Id, formattedText != nil)
+						isCanSend := false
 						isOther := false
+						var forwardedTo []int64
 						if canSend(formattedText, &forward, &isOther) {
+							isCanSend = true
 							for _, dscChatId := range forward.To {
 								if formattedText == nil {
 									forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
@@ -214,6 +224,7 @@ func main() {
 								} else {
 									forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
 								}
+								forwardedTo = append(forwardedTo, dscChatId)
 							}
 						} else if isOther && forward.Other != 0 {
 							dscChatId := forward.Other
@@ -223,7 +234,9 @@ func main() {
 							} else {
 								forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
 							}
+							forwardedTo = append(forwardedTo, dscChatId)
 						}
+						log.Printf("updateMessageEdited final isCanSend: %t isOther: %t forwardedTo: %v", isCanSend, isOther, forwardedTo)
 					}
 				}
 			}
