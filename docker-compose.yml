@@ -1,20 +1,18 @@
-version: "3.4"
+version: '3.4'
 
 services:
-  telegram-forwarder:
+  main:
     build:
       context: ..
       dockerfile: ./Dockerfile
       network: host
-    image: telegram-forwarder
-    container_name: telegram-forwarder
-    hostname: telegram-forwarder
+    image: budva32
     expose:
-      - "4004"
+      - '4004'
     volumes:
-      - "./:/app"
+      - './:/app'
     working_dir: /app
-    stdin_open: true
-    tty: true
+    # stdin_open: true
+    # tty: true
     ports:
       - 4004:4004
