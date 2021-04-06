@@ -15,9 +15,9 @@ import (
 
 var path = filepath.Join(".", fileName)
 
-func Load() (*[]Forward, error) {
+func Load() ([]Forward, error) {
 	var (
-		forwards *[]Forward
+		forwards []Forward
 		err      error
 		file     *os.File
 		yamlData []byte
@@ -45,7 +45,7 @@ func Load() (*[]Forward, error) {
 		log.Printf("Failed to unmarshal file %s: %s", path, err)
 	}
 
-	for _, forward := range *forwards {
+	for _, forward := range forwards {
 		for _, dscChatId := range forward.To {
 			if forward.From == dscChatId {
 				err := fmt.Errorf("destination Id cannot be equal to source Id %d", dscChatId)
@@ -96,16 +96,3 @@ func Watch(reload func()) {
 		log.Fatalln(err)
 	}
 }
-
-// panic: runtime error: invalid memory address or nil pointer dereference
-// [signal SIGSEGV: segmentation violation code=0x1 addr=0x8 pc=0x6a52d1]
-
-// goroutine 5 [running]:
-// github.com/comerc/budva32/config.Load(0x0, 0x0, 0x0)
-//         /build/config/methods.go:48 +0x1b1
-// main.main.func1()
-//         /build/main.go:54 +0x2f
-// github.com/comerc/budva32/config.Watch.func1(0xc000090000, 0xc000113000)
-//         /build/config/methods.go:80 +0x235
-// created by github.com/comerc/budva32/config.Watch
-//         /build/config/methods.go:74 +0xa5

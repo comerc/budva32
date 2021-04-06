@@ -33,7 +33,7 @@ const (
 var (
 	inputCh     = make(chan string, 1)
 	outputCh    = make(chan string, 1)
-	forwards    *[]config.Forward
+	forwards    []config.Forward
 	tdlibClient *client.Client
 )
 
@@ -176,11 +176,11 @@ func main() {
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
-				for _, forward := range *forwards {
+				for _, forward := range forwards {
 					src := updateNewMessage.Message
 					if src.ChatId == forward.From {
 						formattedText := getFormattedText(src.Content)
-						log.Printf("updateNewMessage start ChatId: %d Id: %d hasFormattedText: %t", src.ChatId, src.Id, formattedText != nil)
+						log.Printf("updateNewMessage go ChatId: %d Id: %d hasFormattedText: %t", src.ChatId, src.Id, formattedText != nil)
 						isCanSend := false
 						isOther := false
 						var forwardedTo []int64
@@ -195,11 +195,11 @@ func main() {
 							forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
 							forwardedTo = append(forwardedTo, dscChatId)
 						}
-						log.Printf("updateNewMessage final isCanSend: %t isOther: %t forwardedTo: %v", isCanSend, isOther, forwardedTo)
+						log.Printf("updateNewMessage ok isCanSend: %t isOther: %t forwardedTo: %v", isCanSend, isOther, forwardedTo)
 					}
 				}
 			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
-				for _, forward := range *forwards {
+				for _, forward := range forwards {
 					src := updateMessageEdited
 					if src.ChatId == forward.From && forward.WithEdited {
 						src, err := tdlibClient.GetMessage(&client.GetMessageRequest{
@@ -211,7 +211,7 @@ func main() {
 							continue
 						}
 						formattedText := getFormattedText(src.Content)
-						log.Printf("updateMessageEdited start ChatId: %d Id: %d hasFormattedText: %t", src.ChatId, src.Id, formattedText != nil)
+						log.Printf("updateMessageEdited go ChatId: %d Id: %d hasFormattedText: %t", src.ChatId, src.Id, formattedText != nil)
 						isCanSend := false
 						isOther := false
 						var forwardedTo []int64
@@ -236,7 +236,7 @@ func main() {
 							}
 							forwardedTo = append(forwardedTo, dscChatId)
 						}
-						log.Printf("updateMessageEdited final isCanSend: %t isOther: %t forwardedTo: %v", isCanSend, isOther, forwardedTo)
+						log.Printf("updateMessageEdited ok isCanSend: %t isOther: %t forwardedTo: %v", isCanSend, isOther, forwardedTo)
 					}
 				}
 			}
