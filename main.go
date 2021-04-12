@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,7 +23,6 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: how to copy Album (via SendMessageAlbum) https://github.com/tdlib/td/issues/1482
 // TODO: сообщения обновляются из-за прикрепленных кнопок
 // TODO: пускай бот segezha4 отвечает только на новые сообщения?
 
@@ -179,23 +179,17 @@ func main() {
 				for _, forward := range forwards {
 					src := updateNewMessage.Message
 					if src.ChatId == forward.From {
-						formattedText := getFormattedText(src.Content)
-						log.Printf("updateNewMessage go ChatId: %d Id: %d hasFormattedText: %t", src.ChatId, src.Id, formattedText != nil)
-						isCanSend := false
-						isOther := false
-						var forwardedTo []int64
-						if canSend(formattedText, &forward, &isOther) {
-							isCanSend = true
-							for _, dscChatId := range forward.To {
-								forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
-								forwardedTo = append(forwardedTo, dscChatId)
+						if src.MediaAlbumId == 0 {
+							doUpdateNewMessage([]*client.Message{src}, forward)
+						} else {
+							isFirstMessage := addMessageToMediaAlbum(src)
+							if isFirstMessage {
+								go handleMediaAlbum(src.MediaAlbumId,
+									func(messages []*client.Message) {
+										doUpdateNewMessage(messages, forward)
+									})
 							}
-						} else if isOther && forward.Other != 0 {
-							dscChatId := forward.Other
-							forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
-							forwardedTo = append(forwardedTo, dscChatId)
 						}
-						log.Printf("updateNewMessage ok isCanSend: %t isOther: %t forwardedTo: %v", isCanSend, isOther, forwardedTo)
 					}
 				}
 			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
@@ -210,33 +204,7 @@ func main() {
 							log.Print(err)
 							continue
 						}
-						formattedText := getFormattedText(src.Content)
-						log.Printf("updateMessageEdited go ChatId: %d Id: %d hasFormattedText: %t", src.ChatId, src.Id, formattedText != nil)
-						isCanSend := false
-						isOther := false
-						var forwardedTo []int64
-						if canSend(formattedText, &forward, &isOther) {
-							isCanSend = true
-							for _, dscChatId := range forward.To {
-								if formattedText == nil {
-									forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
-									// TODO: ещё одно сообщение со ссылкой на исходник редактирования
-								} else {
-									forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
-								}
-								forwardedTo = append(forwardedTo, dscChatId)
-							}
-						} else if isOther && forward.Other != 0 {
-							dscChatId := forward.Other
-							if formattedText == nil {
-								forwardNewMessage(tdlibClient, src, dscChatId, forward.SendCopy)
-								// TODO: ещё одно сообщение со ссылкой на исходник редактирования
-							} else {
-								forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
-							}
-							forwardedTo = append(forwardedTo, dscChatId)
-						}
-						log.Printf("updateMessageEdited ok isCanSend: %t isOther: %t forwardedTo: %v", isCanSend, isOther, forwardedTo)
+						doUpdateMessageEdited(src, forward)
 					}
 				}
 			}
@@ -289,11 +257,16 @@ func forwardMessageEdited(tdlibClient *client.Client, formattedText *client.Form
 	}
 }
 
-func forwardNewMessage(tdlibClient *client.Client, src *client.Message, dscChatId int64, SendCopy bool) {
+func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, dscChatId int64, SendCopy bool) {
+	src := messages[0]
+	var messageIds []int64
+	for _, message := range messages {
+		messageIds = append(messageIds, message.Id)
+	}
 	forwardedMessages, err := tdlibClient.ForwardMessages(&client.ForwardMessagesRequest{
 		ChatId:     dscChatId,
 		FromChatId: src.ChatId,
-		MessageIds: []int64{src.Id},
+		MessageIds: messageIds,
 		Options: &client.MessageSendOptions{
 			DisableNotification: false,
 			FromBackground:      false,
@@ -356,7 +329,7 @@ func contains(a *[]string, s string) bool {
 	return false
 }
 
-func canSend(formattedText *client.FormattedText, forward *config.Forward, isOther *bool) bool {
+func canSend(formattedText *client.FormattedText, forward config.Forward, isOther *bool) bool {
 	*isOther = false
 	if formattedText == nil {
 		hasInclude := false
@@ -540,4 +513,111 @@ func getChatList(tdlibClient *client.Client, limit int) ([]*client.Chat, error) 
 		}
 	}
 	return allChats, nil
+}
+
+type MediaAlbum struct {
+	messages     []*client.Message
+	lastReceived time.Time
+}
+
+var mediaAlbums = make(map[client.JsonInt64]MediaAlbum)
+
+var mu sync.Mutex
+
+func addMessageToMediaAlbum(message *client.Message) bool {
+	item, ok := mediaAlbums[message.MediaAlbumId]
+	if !ok {
+		item = MediaAlbum{}
+	}
+	item.messages = append(item.messages, message)
+	item.lastReceived = time.Now()
+	mediaAlbums[message.MediaAlbumId] = item
+	return !ok
+}
+
+func getMediaAlbumLastReceivedDiff(id client.JsonInt64) time.Duration {
+	mu.Lock()
+	defer mu.Unlock()
+	return time.Since(mediaAlbums[id].lastReceived)
+}
+
+func handleMediaAlbum(id client.JsonInt64, cb func(messages []*client.Message)) {
+	diff := getMediaAlbumLastReceivedDiff(id)
+	const pause = 3 * time.Second
+	if diff < pause {
+		time.Sleep(pause)
+		handleMediaAlbum(id, cb)
+		return
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	messages := mediaAlbums[id].messages
+	delete(mediaAlbums, id)
+	cb(messages)
+}
+
+func getMessageAlbumFormattedText(messages []*client.Message) *client.FormattedText {
+	for _, message := range messages {
+		formattedText := getFormattedText(message.Content)
+		if formattedText.Text != "" {
+			return formattedText
+		}
+	}
+	return nil
+}
+
+func doUpdateNewMessage(messages []*client.Message, forward config.Forward) {
+	src := messages[0]
+	var formattedText *client.FormattedText
+	if src.MediaAlbumId == 0 {
+		formattedText = getFormattedText(src.Content)
+	} else {
+		formattedText = getMessageAlbumFormattedText(messages)
+	}
+	log.Printf("updateNewMessage go ChatId: %d Id: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText != nil && formattedText.Text != "", src.MediaAlbumId)
+	isCanSend := false
+	isOther := false
+	var forwardedTo []int64
+	if canSend(formattedText, forward, &isOther) {
+		isCanSend = true
+		for _, dscChatId := range forward.To {
+			forwardNewMessages(tdlibClient, messages, dscChatId, forward.SendCopy)
+			forwardedTo = append(forwardedTo, dscChatId)
+		}
+	} else if isOther && forward.Other != 0 {
+		dscChatId := forward.Other
+		forwardNewMessages(tdlibClient, messages, dscChatId, forward.SendCopy)
+		forwardedTo = append(forwardedTo, dscChatId)
+	}
+	log.Printf("updateNewMessage ok isCanSend: %t isOther: %t forwardedTo: %v", isCanSend, isOther, forwardedTo)
+}
+
+func doUpdateMessageEdited(src *client.Message, forward config.Forward) {
+	formattedText := getFormattedText(src.Content)
+	log.Printf("updateMessageEdited go ChatId: %d Id: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText != nil && formattedText.Text != "", src.MediaAlbumId)
+	isCanSend := false
+	isOther := false
+	var forwardedTo []int64
+	if canSend(formattedText, forward, &isOther) {
+		isCanSend = true
+		for _, dscChatId := range forward.To {
+			if formattedText == nil {
+				forwardNewMessages(tdlibClient, []*client.Message{src}, dscChatId, forward.SendCopy)
+				// TODO: ещё одно сообщение со ссылкой на исходник редактирования
+			} else {
+				forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
+			}
+			forwardedTo = append(forwardedTo, dscChatId)
+		}
+	} else if isOther && forward.Other != 0 {
+		dscChatId := forward.Other
+		if formattedText == nil {
+			forwardNewMessages(tdlibClient, []*client.Message{src}, dscChatId, forward.SendCopy)
+			// TODO: ещё одно сообщение со ссылкой на исходник редактирования
+		} else {
+			forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
+		}
+		forwardedTo = append(forwardedTo, dscChatId)
+	}
+	log.Printf("updateMessageEdited ok isCanSend: %t isOther: %t forwardedTo: %v", isCanSend, isOther, forwardedTo)
 }

@@ -25,7 +25,7 @@ BUDVA32_PORT=4004
 
 http://localhost:4004
 
-## Draft (old variants for auth)
+## Old variants for Telegram auth (draft)
 
 from console:
 
@@ -127,6 +127,6 @@ func getMessageLink(tdlibClient *client.Client, ChatId, MessageId int64) {
 
 ## Inspired by
 
-- https://github.com/marperia/fwdbot
-- https://github.com/wcsiu/telegram-client-demo +[article](https://wcsiu.github.io/2020/12/26/create-a-telegram-client-in-go-with-docker.html)
-- https://vc.ru/dev/158757-sozdanie-i-razvertyvanie-retranslyatora-telegram-kanalov-ispolzuya-python-i-heroku
+- [marperia/fwdbot](https://github.com/marperia/fwdbot)
+- [wcsiu/telegram-client-demo](https://github.com/wcsiu/telegram-client-demo) + [article](https://wcsiu.github.io/2020/12/26/create-a-telegram-client-in-go-with-docker.html)
+- [Создание и развертывание ретранслятора Telegram каналов, используя Python и Heroku](https://vc.ru/dev/158757-sozdanie-i-razvertyvanie-retranslyatora-telegram-kanalov-ispolzuya-python-i-heroku)
