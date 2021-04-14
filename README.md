@@ -25,7 +25,7 @@ BUDVA32_PORT=4004
 
 http://localhost:4004
 
-## Old variants for Telegram auth (draft)
+<!-- ## Old variants for Telegram auth (draft)
 
 from console:
 
@@ -45,7 +45,7 @@ but then we have problem with permissions (may be need docker rootless mode?):
 
 ```
 $ sudo chmod -R 777 ./tdata
-```
+``` -->
 
 ## config.yml example
 
@@ -55,7 +55,8 @@ $ sudo chmod -R 777 ./tdata
 - From: -1234
 	To: [-4321, -8888]
   Other: -4444
-	WithEdited: true
+	SendCopy: true
+	# WithEdited: true
 	Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
 	Include: '#ARK|#Идеи_покупок|#ОТЧЕТЫ'
 	IncludeSubmatch:
@@ -68,7 +69,7 @@ $ sudo chmod -R 777 ./tdata
 
 http://localhost:4004?limit=10
 
-## About ReplyToMessageId
+<!-- ## About ReplyToMessageId
 
 До боли простое решение по копированию сообщений с историей изменений. Если копируемое сообщение было отредактировано, то копирование выполняется в новое сообщение с отсылкой на предыдущее, благодаря механизму ответов.
 
@@ -76,7 +77,7 @@ http://localhost:4004?limit=10
 
 И можно получить отдельно всю историю в просмотре ответов (работает только для группы, но не для канала).
 
-![](assets/image2.jpg)
+![](assets/image2.jpg) -->
 
 ## Examples for go-tdlib
 
