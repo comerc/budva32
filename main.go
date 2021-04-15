@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: если не было изменения сообщения (нажимались кнопочки под сообщением), то не запускать синхронизацию
 // TODO: badger
 // TODO: завершение SQLLite при панике
 // TODO: копировать закреп сообщений
@@ -181,6 +183,8 @@ func main() {
 		log.Print("Stop...")
 		os.Exit(1)
 	}()
+
+	defer handlePanic()
 
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
@@ -756,4 +760,26 @@ func getForwards() []config.Forward {
 	defer forwardsMu.Unlock()
 	result := forwards // ???
 	return result
+}
+
+// func getMessageLink(tdlibClient *client.Client, ChatId, MessageId int64) {
+// 	messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
+// 		ChatId:     ChatId,
+// 		MessageId:  MessageId,
+// 		ForAlbum:   false,
+// 		ForComment: false,
+// 	})
+// 	fmt.Println("****")
+// 	if err != nil {
+// 		fmt.Println(err)
+// 	} else {
+// 		fmt.Printf("%#v\n", messageLink)
+// 	}
+// }
+
+func handlePanic() {
+	if err := recover(); err != nil {
+		log.Printf("Panic...\n%s\n\n%s", err, debug.Stack())
+		os.Exit(1)
+	}
 }
