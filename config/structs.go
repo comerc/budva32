@@ -9,8 +9,9 @@ type Forward struct {
 	Exclude         string
 	Include         string
 	IncludeSubmatch []IncludeSubmatch
+	SourceTitle     string
 	SendCopy        bool
-	WithEdited      bool
+	// WithEdited      bool
 }
 
 type IncludeSubmatch struct {

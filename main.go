@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -25,12 +26,9 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: если не было изменения сообщения (нажимались кнопочки под сообщением), то не запускать синхронизацию
+// TODO: подменять ссылки внутри сообщений на группу / канал
 // TODO: badger
-// TODO: завершение SQLLite при панике
 // TODO: копировать закреп сообщений
-// TODO: (deprecated for WithEdited) сообщения обновляются из-за прикрепленных кнопок
-// TODO: (deprecated for WithEdited) пускай бот segezha4 отвечает только на новые сообщения?
 
 const (
 	projectName = "budva32"
@@ -245,20 +243,35 @@ func main() {
 						srcFormattedText := formattedText
 						isEqualFormattedText := false
 						if srcFormattedText == nil && dscFormattedText == nil {
-							isEqualFormattedText = false
+							isEqualFormattedText = true
 						} else if srcFormattedText != nil && dscFormattedText == nil || srcFormattedText == nil && dscFormattedText != nil {
-							isEqualFormattedText = true
+							isEqualFormattedText = false
 						} else if srcFormattedText.Text != dscFormattedText.Text {
-							isEqualFormattedText = true
+							isEqualFormattedText = false
 						} else if len(srcFormattedText.Entities) != len(dscFormattedText.Entities) {
-							isEqualFormattedText = true
+							isEqualFormattedText = false
 						} else {
 							for i, srcEntity := range srcFormattedText.Entities {
 								dscEntity := dscFormattedText.Entities[i]
-								isEqualFormattedText = srcEntity.Type != dscEntity.Type &&
-									srcEntity.Offset != dscEntity.Offset &&
-									srcEntity.Length != dscEntity.Length
-								if isEqualFormattedText {
+								if srcEntity.Offset == dscEntity.Offset &&
+									srcEntity.Length == dscEntity.Length &&
+									srcEntity.Type == dscEntity.Type {
+									var (
+										err     error
+										srcJSON []byte
+										dscJSON []byte
+									)
+									srcJSON, err = srcEntity.MarshalJSON()
+									if err != nil {
+										break
+									}
+									dscJSON, err = dscEntity.MarshalJSON()
+									if err != nil {
+										break
+									}
+									if bytes.Equal(srcJSON, dscJSON) {
+										isEqualFormattedText = true
+									}
 									break
 								}
 							}
@@ -737,6 +750,47 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward) {
 		dscChatId := forward.Other
 		forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward)
 		forwardedTo = append(forwardedTo, dscChatId)
+		if forward.SendCopy && forward.SourceTitle != "" {
+			messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
+				ChatId:     src.ChatId,
+				MessageId:  src.Id,
+				ForAlbum:   src.MediaAlbumId != 0,
+				ForComment: false,
+			})
+			if err != nil {
+				log.Print(err)
+			} else if !messageLink.IsPublic {
+				log.Print("Invalid messageLink.IsPublic for ChatId:", src.ChatId)
+			} else {
+				text := forward.SourceTitle
+				boldEntity := &client.TextEntity{
+					Offset: 0,
+					Length: int32(len([]rune(text))),
+					Type:   &client.TextEntityTypeBold{},
+				}
+				urlEntity := &client.TextEntity{
+					Offset: 0,
+					Length: int32(len([]rune(text))),
+					Type: &client.TextEntityTypeTextUrl{
+						Url: messageLink.Link,
+					},
+				}
+				_, err := tdlibClient.SendMessage(&client.SendMessageRequest{
+					ChatId: dscChatId,
+					InputMessageContent: &client.InputMessageText{
+						Text: &client.FormattedText{
+							Text:     text,
+							Entities: []*client.TextEntity{boldEntity, urlEntity},
+						},
+						DisableWebPagePreview: true,
+						ClearDraft:            true,
+					},
+				})
+				if err != nil {
+					log.Print(err)
+				}
+			}
+		}
 	}
 	log.Printf("updateNewMessage ok isFilters: %t isOther: %t forwardedTo: %v", isFilters, isOther, forwardedTo)
 }
