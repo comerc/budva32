@@ -208,7 +208,7 @@ func main() {
 					}
 				}
 			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
-				isSrc := false
+				isSetSrc := false
 				var formattedText *client.FormattedText
 				var contentMode ContentMode
 				search := ChatMessageId(fmt.Sprintf("%d:%d", updateMessageEdited.ChatId, updateMessageEdited.MessageId))
@@ -216,8 +216,8 @@ func main() {
 					if from != search {
 						continue
 					}
-					if !isSrc {
-						isSrc = true
+					if !isSetSrc {
+						isSetSrc = true
 						src, err := tdlibClient.GetMessage(&client.GetMessageRequest{
 							ChatId:    updateMessageEdited.ChatId,
 							MessageId: updateMessageEdited.MessageId,
@@ -231,11 +231,48 @@ func main() {
 					a := strings.Split(string(to), ":")
 					dscChatId := int64(convertToInt(a[0]))
 					dscId := int64(convertToInt(a[1]))
+					newMessageId := getNewMessageId(dscChatId, dscId)
+					{
+						dsc, err := tdlibClient.GetMessage(&client.GetMessageRequest{
+							ChatId:    dscChatId,
+							MessageId: newMessageId,
+						})
+						if err != nil {
+							log.Print(err)
+							continue
+						}
+						dscFormattedText, _ := getFormattedText(dsc.Content)
+						srcFormattedText := formattedText
+						isEqualFormattedText := false
+						if srcFormattedText == nil && dscFormattedText == nil {
+							isEqualFormattedText = false
+						} else if srcFormattedText != nil && dscFormattedText == nil || srcFormattedText == nil && dscFormattedText != nil {
+							isEqualFormattedText = true
+						} else if srcFormattedText.Text != dscFormattedText.Text {
+							isEqualFormattedText = true
+						} else if len(srcFormattedText.Entities) != len(dscFormattedText.Entities) {
+							isEqualFormattedText = true
+						} else {
+							for i, srcEntity := range srcFormattedText.Entities {
+								dscEntity := dscFormattedText.Entities[i]
+								isEqualFormattedText = srcEntity.Type != dscEntity.Type &&
+									srcEntity.Offset != dscEntity.Offset &&
+									srcEntity.Length != dscEntity.Length
+								if isEqualFormattedText {
+									break
+								}
+							}
+						}
+						// если formattedText не изменился (когда кнопки нажимают)
+						if isEqualFormattedText {
+							continue
+						}
+					}
 					switch contentMode {
 					case ContentModeText:
 						dsc, err := tdlibClient.EditMessageText(&client.EditMessageTextRequest{
 							ChatId:    dscChatId,
-							MessageId: getNewMessageId(dscChatId, dscId),
+							MessageId: newMessageId,
 							InputMessageContent: &client.InputMessageText{
 								Text:                  formattedText,
 								DisableWebPagePreview: true,
@@ -249,7 +286,7 @@ func main() {
 					case ContentModeCaption:
 						dsc, err := tdlibClient.EditMessageCaption(&client.EditMessageCaptionRequest{
 							ChatId:    dscChatId,
-							MessageId: getNewMessageId(dscChatId, dscId),
+							MessageId: newMessageId,
 							Caption:   formattedText,
 						})
 						if err != nil {
@@ -327,6 +364,33 @@ func getNewMessageId(chatId, oldId int64) int64 {
 // 	if err != nil {
 // 		log.Print(err)
 // 	} else {
+// 		setMessageId(srcChatId, srcId, dsc.ChatId, dsc.Id)
+// 	}
+// }
+
+// func forwardMessageAlbumEdited(tdlibClient *client.Client, messages []*client.Message, srcChatId, srcId, dscChatId int64) {
+// 	dsc, err := tdlibClient.SendMessageAlbum(&client.SendMessageAlbumRequest{
+// 		InputMessageContents: func() []client.InputMessageContent {
+// 			result := make([]client.InputMessageContent, 0)
+// 			for _, message := range messages {
+// 				src := message
+// 				messageContent := src.Content
+// 				messagePhoto := messageContent.(*client.MessagePhoto)
+// 				result = append(result, &client.InputMessagePhoto{
+// 					Photo: &client.InputFileRemote{
+// 						Id: string(messagePhoto.Photo.Sizes[0].Photo.Id),
+// 					},
+// 					Caption: messagePhoto.Caption,
+// 				})
+// 			}
+// 			return result
+// 		}(),
+// 		ReplyToMessageId: getMessageId(srcChatId, srcId, dscChatId),
+// 	})
+// 	if err != nil {
+// 		log.Print(err)
+// 	} else {
+// 		dsc := dsc.Messages[0]
 // 		setMessageId(srcChatId, srcId, dsc.ChatId, dsc.Id)
 // 	}
 // }
