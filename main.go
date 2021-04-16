@@ -26,8 +26,8 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: подменять ссылки внутри сообщений на группу / канал (если копируется всё полностью)
 // TODO: badger
+// TODO: подменять ссылки внутри сообщений на группу / канал (если копируется всё полностью)
 // TODO: копировать закреп сообщений
 
 const (
@@ -49,6 +49,7 @@ func main() {
 	if err = godotenv.Load(); err != nil {
 		log.Fatalf("Error loading .env file")
 	}
+
 	var (
 		apiId       = os.Getenv("BUDVA32_API_ID")
 		apiHash     = os.Getenv("BUDVA32_API_HASH")
@@ -206,25 +207,28 @@ func main() {
 					}
 				}
 			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
-				isSetSrc := false
-				var formattedText *client.FormattedText
-				var contentMode ContentMode
+				var (
+					result        []string
+					src           *client.Message
+					formattedText *client.FormattedText
+					contentMode   ContentMode
+				)
 				search := ChatMessageId(fmt.Sprintf("%d:%d", updateMessageEdited.ChatId, updateMessageEdited.MessageId))
 				for to, from := range copiedMessageIds {
 					if from != search {
 						continue
 					}
-					if !isSetSrc {
-						isSetSrc = true
-						src, err := tdlibClient.GetMessage(&client.GetMessageRequest{
+					if src == nil {
+						src, err = tdlibClient.GetMessage(&client.GetMessageRequest{
 							ChatId:    updateMessageEdited.ChatId,
 							MessageId: updateMessageEdited.MessageId,
 						})
 						if err != nil {
-							log.Print(err)
+							log.Print("GetMessage() src ", err)
 							break
 						}
 						formattedText, contentMode = getFormattedText(src.Content)
+						log.Printf("updateMessageEdited go ChatId: %d Id: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText != nil && formattedText.Text != "", src.MediaAlbumId)
 					}
 					a := strings.Split(string(to), ":")
 					dscChatId := int64(convertToInt(a[0]))
@@ -236,7 +240,7 @@ func main() {
 							MessageId: newMessageId,
 						})
 						if err != nil {
-							log.Print(err)
+							log.Print("GetMessage() dsc ", err)
 							continue
 						}
 						dscFormattedText, _ := getFormattedText(dsc.Content)
@@ -293,7 +297,7 @@ func main() {
 							},
 						})
 						if err != nil {
-							log.Print(err)
+							log.Print("EditMessageText() ", err)
 						}
 						_ = dsc // TODO: log
 					case ContentModeCaption:
@@ -303,11 +307,13 @@ func main() {
 							Caption:   formattedText,
 						})
 						if err != nil {
-							log.Print(err)
+							log.Print("EditMessageCaption() ", err)
 						}
 						_ = dsc // TODO: log
 					}
+					result = append(result, fmt.Sprintf("from: %s to: %s, newMessageId: %d", from, to, newMessageId))
 				}
+				log.Printf("updateMessageEdited ok result: %v", result)
 				// for _, forward := range getForwards() {
 				// 	src := updateMessageEdited
 				// 	if src.ChatId == forward.From && forward.WithEdited {
@@ -333,7 +339,7 @@ func main() {
 func convertToInt(s string) int {
 	i, err := strconv.Atoi(s)
 	if err != nil {
-		log.Print(err)
+		log.Print("convertToInt() ", err)
 		return 0
 	}
 	return int(i)
@@ -428,9 +434,11 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 		RemoveCaption: false,
 	})
 	if err != nil {
-		log.Print(err)
+		log.Print("ForwardMessages() ", err)
 	} else if len(forwardedMessages.Messages) != int(forwardedMessages.TotalCount) || forwardedMessages.TotalCount == 0 {
-		log.Print("Invalid TotalCount")
+		log.Print("forwardNewMessages(): invalid TotalCount")
+	} else if len(forwardedMessages.Messages) != len(messageIds) {
+		log.Print("forwardNewMessages(): invalid len(messageIds)")
 	} else if forward.SendCopy {
 		for i, dsc := range forwardedMessages.Messages {
 			srcId := messageIds[i]
@@ -758,9 +766,9 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward) {
 				ForComment: false,
 			})
 			if err != nil {
-				log.Print(err)
+				log.Print("GetMessageLink() ", err)
 			} else if !messageLink.IsPublic {
-				log.Print("Invalid messageLink.IsPublic for ChatId:", src.ChatId)
+				log.Print("Invalid messageLink.IsPublic for ChatId: ", src.ChatId)
 			} else {
 				text := forward.SourceTitle
 				boldEntity := &client.TextEntity{
@@ -787,7 +795,7 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward) {
 					},
 				})
 				if err != nil {
-					log.Print(err)
+					log.Print("SendMessage() ", err)
 				}
 			}
 		}

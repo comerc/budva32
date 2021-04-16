@@ -14,6 +14,8 @@ Or use [TDLib build instructions](https://tdlib.github.io/td/build.html)
 
 ## .env
 
+[Register an application](https://my.telegram.org/apps) to obtain an api_id and api_hash
+
 ```
 BUDVA32_API_ID=1234567
 BUDVA32_API_HASH=XXXXXXXX
@@ -83,18 +85,25 @@ http://localhost:4004?limit=10
 ## Examples for go-tdlib
 
 ```go
-func getMessageLink(tdlibClient *client.Client, ChatId, MessageId int64) {
-	messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
-		ChatId:     ChatId,
-		MessageId:  MessageId,
-		ForAlbum:   false,
-		ForComment: false,
+func getMessageLink(srcChatId, srcMessageId int) {
+	src, err := tdlibClient.GetMessage(&client.GetMessageRequest{
+		ChatId:    int64(srcChatId),
+		MessageId: int64(srcMessageId),
 	})
-	fmt.Println("****")
 	if err != nil {
-		fmt.Println(err)
+		fmt.Print("GetMessage src ", err)
 	} else {
-		fmt.Printf("%#v\n", messageLink)
+		messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
+			ChatId:     src.ChatId,
+			MessageId:  src.Id,
+			ForAlbum:   src.MediaAlbumId != 0,
+			ForComment: false,
+		})
+		if err != nil {
+			fmt.Print("GetMessageLink ", err)
+		} else {
+			fmt.Print(messageLink.Link)
+		}
 	}
 }
 
