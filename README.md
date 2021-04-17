@@ -58,7 +58,7 @@ $ sudo chmod -R 777 ./tdata
 	To: [-4321, -8888]
   Other: -4444
 	SendCopy: true
-	SourceTitle: "FTT" # for Other with SendCopy
+	SourceTitle: "*FTT*☝️" # for Other with SendCopy (with markdown)
 	# WithEdited: true # deprecated
 	Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
 	Include: '#ARK|#Идеи_покупок|#ОТЧЕТЫ'

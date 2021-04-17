@@ -26,9 +26,11 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: написать ещё один бот, который будет сообщать, когда другие боты решили покурить
 // TODO: badger
 // TODO: подменять ссылки внутри сообщений на группу / канал (если копируется всё полностью)
 // TODO: копировать закреп сообщений
+// TODO: forever
 
 const (
 	projectName = "budva32"
@@ -770,32 +772,43 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward) {
 			} else if !messageLink.IsPublic {
 				log.Print("Invalid messageLink.IsPublic for ChatId: ", src.ChatId)
 			} else {
-				text := forward.SourceTitle
-				boldEntity := &client.TextEntity{
-					Offset: 0,
-					Length: int32(len([]rune(text))),
-					Type:   &client.TextEntityTypeBold{},
-				}
-				urlEntity := &client.TextEntity{
-					Offset: 0,
-					Length: int32(len([]rune(text))),
-					Type: &client.TextEntityTypeTextUrl{
-						Url: messageLink.Link,
-					},
-				}
-				_, err := tdlibClient.SendMessage(&client.SendMessageRequest{
-					ChatId: dscChatId,
-					InputMessageContent: &client.InputMessageText{
-						Text: &client.FormattedText{
-							Text:     text,
-							Entities: []*client.TextEntity{boldEntity, urlEntity},
-						},
-						DisableWebPagePreview: true,
-						ClearDraft:            true,
+				// text := forward.SourceTitle
+				// boldEntity := &client.TextEntity{
+				// 	Offset: 0,
+				// 	Length: int32(len([]rune(text))),
+				// 	Type:   &client.TextEntityTypeBold{},
+				// }
+				// urlEntity := &client.TextEntity{
+				// 	Offset: 0,
+				// 	Length: int32(len([]rune(text))),
+				// 	Type: &client.TextEntityTypeTextUrl{
+				// 		Url: messageLink.Link,
+				// 	},
+				// }
+				// formattedText := &client.FormattedText{
+				// 	Text:     text,
+				// 	Entities: []*client.TextEntity{boldEntity, urlEntity},
+				// },
+				formattedText, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
+					Text: fmt.Sprintf("[%s](%s)", escape(forward.SourceTitle), messageLink.Link),
+					ParseMode: &client.TextParseModeMarkdown{
+						Version: 2,
 					},
 				})
 				if err != nil {
-					log.Print("SendMessage() ", err)
+					log.Print("ParseTextEntities() ", err)
+				} else {
+					_, err := tdlibClient.SendMessage(&client.SendMessageRequest{
+						ChatId: dscChatId,
+						InputMessageContent: &client.InputMessageText{
+							Text:                  formattedText,
+							DisableWebPagePreview: true,
+							ClearDraft:            true,
+						},
+					})
+					if err != nil {
+						log.Print("SendMessage() ", err)
+					}
 				}
 			}
 		}
@@ -846,4 +859,9 @@ func handlePanic() {
 		log.Printf("Panic...\n%s\n\n%s", err, debug.Stack())
 		os.Exit(1)
 	}
+}
+
+func escape(s string) string {
+	re := regexp.MustCompile(`[.|\-|\_|(|)|#|!]`)
+	return re.ReplaceAllString(s, `\$0`)
 }
