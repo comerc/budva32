@@ -219,6 +219,7 @@ func main() {
 					contentMode   ContentMode
 				)
 				search := ChatMessageId(fmt.Sprintf("%d:%d", updateMessageEdited.ChatId, updateMessageEdited.MessageId))
+				log.Printf("updateMessageEdited go search: %s", search)
 				for to, from := range copiedMessageIds {
 					if from != search {
 						continue
@@ -233,7 +234,7 @@ func main() {
 							break
 						}
 						formattedText, contentMode = getFormattedText(src.Content)
-						log.Printf("updateMessageEdited go ChatId: %d Id: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText != nil && formattedText.Text != "", src.MediaAlbumId)
+						log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText != nil && formattedText.Text != "", src.MediaAlbumId)
 					}
 					a := strings.Split(string(to), ":")
 					dscChatId := int64(convertToInt(a[0]))
@@ -316,7 +317,7 @@ func main() {
 						}
 						_ = dsc // TODO: log
 					}
-					result = append(result, fmt.Sprintf("from: %s to: %s, newMessageId: %d", from, to, newMessageId))
+					result = append(result, fmt.Sprintf("to: %s, newMessageId: %d", to, newMessageId))
 				}
 				log.Printf("updateMessageEdited ok result: %v", result)
 				// for _, forward := range getForwards() {
