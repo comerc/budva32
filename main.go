@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -25,6 +24,24 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/zelenin/go-tdlib/client"
 )
+
+// 2021/04/17 18:48:01 updateNewMessage go ChatId: -1001292964247 Id: 40864055296 hasText: true MediaAlbumId: 0
+// 2021/04/17 18:48:01 Panic...
+// runtime error: invalid memory address or nil pointer dereference
+
+// goroutine 1 [running]:
+// runtime/debug.Stack(0xc0002d5430, 0x1767f80, 0x1e12a40)
+//         /usr/local/go/src/runtime/debug/stack.go:24 +0x9f
+// main.handlePanic()
+//         /build/main.go:874 +0x5b
+// panic(0x1767f80, 0x1e12a40)
+//         /usr/local/go/src/runtime/panic.go:965 +0x1b9
+// main.forwardNewMessages(0xc000128cc0, 0xc0002d5c38, 0x1, 0x1, 0xffffff16de49de69, 0xffffff16d5929850, 0xffffff16de49de69, 0xc0000de440, 0x1, 0x4, ...)
+//         /build/main.go:451 +0x2f6
+// main.doUpdateNewMessage(0xc0002d5c38, 0x1, 0x1, 0xffffff16de49de69, 0xc0000de440, 0x1, 0x4, 0xffffff16e643cfc6, 0xc00009b400, 0x4dd, ...)
+//         /build/main.go:771 +0x338
+// main.main()
+//         /build/main.go:201 +0x1e98
 
 // TODO: badger
 // TODO: подменять ссылки внутри сообщений на группу / канал (если копируется всё полностью)
@@ -251,45 +268,61 @@ func main() {
 						}
 						dscFormattedText, _ := getFormattedText(dsc.Content)
 						srcFormattedText := formattedText
-						isEqualFormattedText := false
-						if srcFormattedText == nil && dscFormattedText == nil {
-							isEqualFormattedText = true
-						} else if srcFormattedText != nil && dscFormattedText == nil || srcFormattedText == nil && dscFormattedText != nil {
-							isEqualFormattedText = false
-						} else if srcFormattedText.Text != dscFormattedText.Text {
-							isEqualFormattedText = false
-						} else if len(srcFormattedText.Entities) != len(dscFormattedText.Entities) {
-							isEqualFormattedText = false
-						} else {
-							for i, srcEntity := range srcFormattedText.Entities {
-								dscEntity := dscFormattedText.Entities[i]
-								if srcEntity.Offset == dscEntity.Offset &&
-									srcEntity.Length == dscEntity.Length &&
-									srcEntity.Type == dscEntity.Type {
-									var (
-										err     error
-										srcJSON []byte
-										dscJSON []byte
-									)
-									srcJSON, err = srcEntity.MarshalJSON()
-									if err != nil {
-										break
-									}
-									dscJSON, err = dscEntity.MarshalJSON()
-									if err != nil {
-										break
-									}
-									if bytes.Equal(srcJSON, dscJSON) {
-										isEqualFormattedText = true
-									}
-									break
-								}
-							}
+						srcMarkdownText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{
+							Text: srcFormattedText,
+						})
+						if err != nil {
+							log.Print("GetMarkdownText(srcFormattedText): ", err)
 						}
-						// если formattedText не изменился (когда кнопки нажимают)
-						if isEqualFormattedText {
+						dscMarkdownText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{
+							Text: dscFormattedText,
+						})
+						if err != nil {
+							log.Print("GetMarkdownText(dscFormattedText): ", err)
+						}
+						if srcMarkdownText != nil && dscMarkdownText != nil &&
+							srcMarkdownText.Text == dscMarkdownText.Text {
 							continue
 						}
+						// isEqualFormattedText := false
+						// if srcFormattedText == nil && dscFormattedText == nil {
+						// 	isEqualFormattedText = true
+						// } else if srcFormattedText != nil && dscFormattedText == nil || srcFormattedText == nil && dscFormattedText != nil {
+						// 	isEqualFormattedText = false
+						// } else if srcFormattedText.Text != dscFormattedText.Text {
+						// 	isEqualFormattedText = false
+						// } else if len(srcFormattedText.Entities) != len(dscFormattedText.Entities) {
+						// 	isEqualFormattedText = false
+						// } else {
+						// 	for i, srcEntity := range srcFormattedText.Entities {
+						// 		dscEntity := dscFormattedText.Entities[i]
+						// 		if srcEntity.Offset == dscEntity.Offset &&
+						// 			srcEntity.Length == dscEntity.Length &&
+						// 			srcEntity.Type == dscEntity.Type {
+						// 			var (
+						// 				err     error
+						// 				srcJSON []byte
+						// 				dscJSON []byte
+						// 			)
+						// 			srcJSON, err = srcEntity.MarshalJSON()
+						// 			if err != nil {
+						// 				break
+						// 			}
+						// 			dscJSON, err = dscEntity.MarshalJSON()
+						// 			if err != nil {
+						// 				break
+						// 			}
+						// 			if bytes.Equal(srcJSON, dscJSON) {
+						// 				isEqualFormattedText = true
+						// 			}
+						// 			break
+						// 		}
+						// 	}
+						// }
+						// // если formattedText не изменился (когда кнопки нажимают)
+						// if isEqualFormattedText {
+						// 	continue
+						// }
 					}
 					switch contentMode {
 					case ContentModeText:
