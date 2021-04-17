@@ -26,11 +26,13 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: написать ещё один бот, который будет сообщать, когда другие боты решили покурить
 // TODO: badger
 // TODO: подменять ссылки внутри сообщений на группу / канал (если копируется всё полностью)
 // TODO: копировать закреп сообщений
-// TODO: forever
+// TODO: Restart Go program by itself:
+// https://github.com/rcrowley/goagain
+// https://github.com/jpillora/overseer
+// https://groups.google.com/g/golang-nuts/c/b3fXjxP379Y
 
 const (
 	projectName = "budva32"
