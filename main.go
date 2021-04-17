@@ -480,8 +480,12 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 		log.Print("forwardNewMessages(): invalid len(messageIds)")
 	} else if forward.SendCopy {
 		for i, dsc := range forwardedMessages.Messages {
-			srcId := messageIds[i]
+			if dsc == nil {
+				log.Printf("!!!! dsc == nil !!!! forwardedMessages: %#v messageIds: %#v", forwardedMessages, messageIds)
+				continue
+			}
 			dscId := dsc.Id
+			srcId := messageIds[i]
 			to := ChatMessageId(fmt.Sprintf("%d:%d", dscChatId, dscId))
 			from := ChatMessageId(fmt.Sprintf("%d:%d", srcChatId, srcId))
 			copiedMessageIds[to] = from
