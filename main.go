@@ -239,73 +239,6 @@ func main() {
 					dscChatId := int64(convertToInt(a[0]))
 					dscId := int64(convertToInt(a[1]))
 					newMessageId := getNewMessageId(dscChatId, dscId)
-					{
-						dsc, err := tdlibClient.GetMessage(&client.GetMessageRequest{
-							ChatId:    dscChatId,
-							MessageId: newMessageId,
-						})
-						if err != nil {
-							log.Print("GetMessage() dsc ", err)
-							continue
-						}
-						dscFormattedText, _ := getFormattedText(dsc.Content)
-						srcFormattedText := formattedText
-						srcMarkdownText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{
-							Text: srcFormattedText,
-						})
-						if err != nil {
-							log.Print("GetMarkdownText(srcFormattedText): ", err)
-						}
-						dscMarkdownText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{
-							Text: dscFormattedText,
-						})
-						if err != nil {
-							log.Print("GetMarkdownText(dscFormattedText): ", err)
-						}
-						if srcMarkdownText != nil && dscMarkdownText != nil &&
-							srcMarkdownText.Text == dscMarkdownText.Text {
-							continue
-						}
-						// isEqualFormattedText := false
-						// if srcFormattedText == nil && dscFormattedText == nil {
-						// 	isEqualFormattedText = true
-						// } else if srcFormattedText != nil && dscFormattedText == nil || srcFormattedText == nil && dscFormattedText != nil {
-						// 	isEqualFormattedText = false
-						// } else if srcFormattedText.Text != dscFormattedText.Text {
-						// 	isEqualFormattedText = false
-						// } else if len(srcFormattedText.Entities) != len(dscFormattedText.Entities) {
-						// 	isEqualFormattedText = false
-						// } else {
-						// 	for i, srcEntity := range srcFormattedText.Entities {
-						// 		dscEntity := dscFormattedText.Entities[i]
-						// 		if srcEntity.Offset == dscEntity.Offset &&
-						// 			srcEntity.Length == dscEntity.Length &&
-						// 			srcEntity.Type == dscEntity.Type {
-						// 			var (
-						// 				err     error
-						// 				srcJSON []byte
-						// 				dscJSON []byte
-						// 			)
-						// 			srcJSON, err = srcEntity.MarshalJSON()
-						// 			if err != nil {
-						// 				break
-						// 			}
-						// 			dscJSON, err = dscEntity.MarshalJSON()
-						// 			if err != nil {
-						// 				break
-						// 			}
-						// 			if bytes.Equal(srcJSON, dscJSON) {
-						// 				isEqualFormattedText = true
-						// 			}
-						// 			break
-						// 		}
-						// 	}
-						// }
-						// // если formattedText не изменился (когда кнопки нажимают)
-						// if isEqualFormattedText {
-						// 	continue
-						// }
-					}
 					switch contentMode {
 					case ContentModeText:
 						dsc, err := tdlibClient.EditMessageText(&client.EditMessageTextRequest{
@@ -320,7 +253,7 @@ func main() {
 						if err != nil {
 							log.Print("EditMessageText() ", err)
 						}
-						_ = dsc // TODO: log
+						log.Printf("EditMessageText() dsc: %#v", dsc)
 					case ContentModeCaption:
 						dsc, err := tdlibClient.EditMessageCaption(&client.EditMessageCaptionRequest{
 							ChatId:    dscChatId,
@@ -330,7 +263,24 @@ func main() {
 						if err != nil {
 							log.Print("EditMessageCaption() ", err)
 						}
-						_ = dsc // TODO: log
+						log.Printf("EditMessageCaption() dsc: %#v", dsc)
+					case ContentModePhoto:
+						messageContent := src.Content
+						messagePhoto := messageContent.(*client.MessagePhoto)
+						dsc, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
+							ChatId:    dscChatId,
+							MessageId: newMessageId,
+							InputMessageContent: &client.InputMessagePhoto{
+								Photo: &client.InputFileRemote{
+									Id: string(messagePhoto.Photo.Sizes[0].Photo.Id),
+								},
+								Caption: messagePhoto.Caption,
+							},
+						})
+						if err != nil {
+							log.Print("EditMessageMedia() ", err)
+						}
+						log.Printf("EditMessageMedia() dsc: %#v", dsc)
 					}
 					result = append(result, fmt.Sprintf("to: %s, newMessageId: %d", to, newMessageId))
 				}
@@ -480,6 +430,8 @@ type ContentMode string
 const (
 	ContentModeText    = "text"
 	ContentModeCaption = "caption"
+	ContentModePhoto   = "photo"
+	// TODO: an animation, an audio, a document, a video
 )
 
 func getFormattedText(messageContent client.MessageContent) (*client.FormattedText, ContentMode) {
@@ -487,12 +439,13 @@ func getFormattedText(messageContent client.MessageContent) (*client.FormattedTe
 		formattedText *client.FormattedText
 		contentMode   ContentMode
 	)
+	// TODO: как использовать switch для разблюдовки по приведению типа?
 	if content, ok := messageContent.(*client.MessageText); ok {
 		formattedText = content.Text
 		contentMode = ContentModeText
 	} else if content, ok := messageContent.(*client.MessagePhoto); ok {
 		formattedText = content.Caption
-		contentMode = ContentModeCaption
+		contentMode = ContentModePhoto
 	} else if content, ok := messageContent.(*client.MessageAnimation); ok {
 		formattedText = content.Caption
 		contentMode = ContentModeCaption
