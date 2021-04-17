@@ -72,6 +72,7 @@ func main() {
 	go func() {
 		http.HandleFunc("/favicon.ico", getFaviconHandler)
 		http.HandleFunc("/", withBasicAuth(withAuthentiation(getChatsHandler)))
+		http.HandleFunc("/ping", getPingHandler)
 		host := getIP()
 		port := ":" + port
 		fmt.Println("Web-server is running: http://" + host + port)
@@ -624,6 +625,17 @@ func getIP() string {
 
 func getFaviconHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "static/favicon.ico")
+}
+
+func getPingHandler(w http.ResponseWriter, r *http.Request) {
+	ret, err := time.Now().UTC().MarshalJSON()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	io.WriteString(w, fmt.Sprintf("{now:%s}", string(ret)))
 }
 
 func getChatsHandler(w http.ResponseWriter, r *http.Request) {
