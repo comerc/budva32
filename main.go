@@ -21,14 +21,14 @@ import (
 	"time"
 
 	"github.com/comerc/budva32/config"
+	"github.com/dgraph-io/badger"
 	"github.com/joho/godotenv"
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: badger
-// TODO: подменять ссылки внутри сообщений на группу / канал (если копируется всё полностью)
-// TODO: синхронизация удаления сообщения
-// TODO: копировать закреп сообщений
+// TODO: сегодня копировальщик просмотрел 1111 сообщений и отобрал из них 11
+// TODO: подменять ссылки внутри сообщений на целевую группу / канал
+// TODO: синхронизировать закреп сообщений
 // TODO: Restart Go program by itself:
 // https://github.com/rcrowley/goagain
 // https://github.com/jpillora/overseer
@@ -44,6 +44,7 @@ var (
 	tdlibClient   *client.Client
 	mediaAlbumsMu sync.Mutex
 	forwardsMu    sync.Mutex
+	badgerDB      *badger.DB
 )
 
 func main() {
@@ -53,6 +54,35 @@ func main() {
 	if err = godotenv.Load(); err != nil {
 		log.Fatalf("Error loading .env file")
 	}
+
+	path := filepath.Join(".", "tdata")
+	if _, err = os.Stat(path); os.IsNotExist(err) {
+		os.Mkdir(path, os.ModePerm)
+	}
+
+	{
+		path := filepath.Join(path, "badger")
+		if _, err = os.Stat(path); os.IsNotExist(err) {
+			os.Mkdir(path, os.ModePerm)
+		}
+		badgerDB, err = badger.Open(badger.DefaultOptions(path))
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	defer badgerDB.Close()
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+		again:
+			err := badgerDB.RunValueLogGC(0.7)
+			if err == nil {
+				goto again
+			}
+		}
+	}()
 
 	var (
 		apiId       = os.Getenv("BUDVA32_API_ID")
@@ -112,11 +142,6 @@ func main() {
 	// or bot authorizer
 	// botToken := "000000000:gsVCGG5YbikxYHC7bP5vRvmBqJ7Xz6vG6td"
 	// authorizer := client.BotAuthorizer(botToken)
-
-	path := filepath.Join(".", "tdata")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		os.Mkdir(path, os.ModePerm)
-	}
 
 	authorizer.TdlibParameters <- &client.TdlibParameters{
 		UseTestDc:              false,
@@ -212,204 +237,201 @@ func main() {
 					}
 				}
 			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
-				var (
-					result        []string
-					src           *client.Message
-					formattedText *client.FormattedText
-					contentMode   ContentMode
-				)
-				search := ChatMessageId(fmt.Sprintf("%d:%d", updateMessageEdited.ChatId, updateMessageEdited.MessageId))
-				log.Printf("updateMessageEdited go search: %s", search)
-				for to, from := range copiedMessageIds {
-					if from != search {
-						continue
+				func() {
+					var result []string
+					fromChatMessageId := fmt.Sprintf("%d:%d", updateMessageEdited.ChatId, updateMessageEdited.MessageId)
+					toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
+					log.Printf("updateMessageEdited go fromChatMessageId: %s toChatMessageIds: %v", fromChatMessageId, toChatMessageIds)
+					defer func() {
+						log.Printf("updateMessageEdited ok result: %v", result)
+					}()
+					if len(toChatMessageIds) == 0 {
+						return
 					}
-					if src == nil {
-						src, err = tdlibClient.GetMessage(&client.GetMessageRequest{
-							ChatId:    updateMessageEdited.ChatId,
-							MessageId: updateMessageEdited.MessageId,
-						})
-						if err != nil {
-							log.Print("GetMessage() src ", err)
-							break
-						}
-						formattedText, contentMode = getFormattedText(src.Content)
-						log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText != nil && formattedText.Text != "", src.MediaAlbumId)
+					src, err := tdlibClient.GetMessage(&client.GetMessageRequest{
+						ChatId:    updateMessageEdited.ChatId,
+						MessageId: updateMessageEdited.MessageId,
+					})
+					if err != nil {
+						log.Print("GetMessage() src ", err)
+						return
 					}
-					a := strings.Split(string(to), ":")
-					dscChatId := int64(convertToInt(a[0]))
-					dscId := int64(convertToInt(a[1]))
-					newMessageId := getNewMessageId(dscChatId, dscId)
-					log.Print("contentMode: ", contentMode)
-					switch contentMode {
-					case ContentModeText:
-						messageContent := src.Content
-						messageText := messageContent.(*client.MessageText)
-						dsc, err := tdlibClient.EditMessageText(&client.EditMessageTextRequest{
-							ChatId:    dscChatId,
-							MessageId: newMessageId,
-							InputMessageContent: &client.InputMessageText{
-								Text:                  messageText.Text,
-								DisableWebPagePreview: messageText.WebPage == nil || messageText.WebPage.Url == "",
-								ClearDraft:            true,
-							},
-						})
-						if err != nil {
-							log.Print("EditMessageText() ", err)
-						}
-						log.Printf("EditMessageText() dsc: %#v", dsc)
-					case ContentModeCaption:
-						dsc, err := tdlibClient.EditMessageCaption(&client.EditMessageCaptionRequest{
-							ChatId:    dscChatId,
-							MessageId: newMessageId,
-							Caption:   formattedText,
-						})
-						if err != nil {
-							log.Print("EditMessageCaption() ", err)
-						}
-						log.Printf("EditMessageCaption() dsc: %#v", dsc)
-					case ContentModeAnimation:
-						messageContent := src.Content
-						messageAnimation := messageContent.(*client.MessageAnimation)
-						dsc, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
-							ChatId:    dscChatId,
-							MessageId: newMessageId,
-							InputMessageContent: &client.InputMessageAnimation{
-								Animation: &client.InputFileRemote{
-									Id: messageAnimation.Animation.Animation.Remote.Id,
+					formattedText, contentMode := getFormattedText(src.Content)
+					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText != nil && formattedText.Text != "", src.MediaAlbumId)
+					for _, toChatMessageId := range toChatMessageIds {
+						a := strings.Split(string(toChatMessageId), ":")
+						dscChatId := int64(convertToInt(a[0]))
+						dscId := int64(convertToInt(a[1]))
+						newMessageId := getNewMessageId(dscChatId, dscId)
+						result = append(result, fmt.Sprintf("toChatMessageId: %s, newMessageId: %d", toChatMessageId, newMessageId))
+						log.Print("contentMode: ", contentMode)
+						switch contentMode {
+						case ContentModeText:
+							messageContent := src.Content
+							messageText := messageContent.(*client.MessageText)
+							dsc, err := tdlibClient.EditMessageText(&client.EditMessageTextRequest{
+								ChatId:    dscChatId,
+								MessageId: newMessageId,
+								InputMessageContent: &client.InputMessageText{
+									Text:                  messageText.Text,
+									DisableWebPagePreview: messageText.WebPage == nil || messageText.WebPage.Url == "",
+									ClearDraft:            true,
 								},
-								// TODO: AddedStickerFileIds , // if applicable?
-								Duration: messageAnimation.Animation.Duration,
-								Width:    messageAnimation.Animation.Width,
-								Height:   messageAnimation.Animation.Height,
-								Caption:  messageAnimation.Caption,
-							},
-						})
-						if err != nil {
-							log.Print("EditMessageMedia() ", err)
-						}
-						log.Printf("EditMessageMedia() dsc: %#v", dsc)
-					case ContentModeDocument:
-						messageContent := src.Content
-						messageDocument := messageContent.(*client.MessageDocument)
-						dsc, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
-							ChatId:    dscChatId,
-							MessageId: newMessageId,
-							InputMessageContent: &client.InputMessageDocument{
-								Document: &client.InputFileRemote{
-									Id: messageDocument.Document.Document.Remote.Id,
-								},
-								Thumbnail: &client.InputThumbnail{
-									Thumbnail: &client.InputFileRemote{
-										Id: messageDocument.Document.Thumbnail.File.Remote.Id,
+							})
+							if err != nil {
+								log.Print("EditMessageText() ", err)
+							}
+							log.Printf("EditMessageText() dsc: %#v", dsc)
+						case ContentModeCaption:
+							dsc, err := tdlibClient.EditMessageCaption(&client.EditMessageCaptionRequest{
+								ChatId:    dscChatId,
+								MessageId: newMessageId,
+								Caption:   formattedText,
+							})
+							if err != nil {
+								log.Print("EditMessageCaption() ", err)
+							}
+							log.Printf("EditMessageCaption() dsc: %#v", dsc)
+						case ContentModeAnimation:
+							messageContent := src.Content
+							messageAnimation := messageContent.(*client.MessageAnimation)
+							dsc, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
+								ChatId:    dscChatId,
+								MessageId: newMessageId,
+								InputMessageContent: &client.InputMessageAnimation{
+									Animation: &client.InputFileRemote{
+										Id: messageAnimation.Animation.Animation.Remote.Id,
 									},
-									Width:  messageDocument.Document.Thumbnail.Width,
-									Height: messageDocument.Document.Thumbnail.Height,
+									// TODO: AddedStickerFileIds , // if applicable?
+									Duration: messageAnimation.Animation.Duration,
+									Width:    messageAnimation.Animation.Width,
+									Height:   messageAnimation.Animation.Height,
+									Caption:  messageAnimation.Caption,
 								},
-								Caption: messageDocument.Caption,
-							},
-						})
-						if err != nil {
-							log.Print("EditMessageMedia() ", err)
-						}
-						log.Printf("EditMessageMedia() dsc: %#v", dsc)
-					case ContentModeAudio:
-						messageContent := src.Content
-						messageAudio := messageContent.(*client.MessageAudio)
-						dsc, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
-							ChatId:    dscChatId,
-							MessageId: newMessageId,
-							InputMessageContent: &client.InputMessageAudio{
-								Audio: &client.InputFileRemote{
-									Id: messageAudio.Audio.Audio.Remote.Id,
-								},
-								AlbumCoverThumbnail: &client.InputThumbnail{
-									Thumbnail: &client.InputFileRemote{
-										Id: messageAudio.Audio.AlbumCoverThumbnail.File.Remote.Id,
+							})
+							if err != nil {
+								log.Print("EditMessageMedia() ", err)
+							}
+							log.Printf("EditMessageMedia() dsc: %#v", dsc)
+						case ContentModeDocument:
+							messageContent := src.Content
+							messageDocument := messageContent.(*client.MessageDocument)
+							dsc, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
+								ChatId:    dscChatId,
+								MessageId: newMessageId,
+								InputMessageContent: &client.InputMessageDocument{
+									Document: &client.InputFileRemote{
+										Id: messageDocument.Document.Document.Remote.Id,
 									},
-									Width:  messageAudio.Audio.AlbumCoverThumbnail.Width,
-									Height: messageAudio.Audio.AlbumCoverThumbnail.Height,
-								},
-								Title:     messageAudio.Audio.Title,
-								Duration:  messageAudio.Audio.Duration,
-								Performer: messageAudio.Audio.Performer,
-								Caption:   messageAudio.Caption,
-							},
-						})
-						if err != nil {
-							log.Print("EditMessageMedia() ", err)
-						}
-						log.Printf("EditMessageMedia() dsc: %#v", dsc)
-					case ContentModeVideo:
-						messageContent := src.Content
-						messageVideo := messageContent.(*client.MessageVideo)
-						// TODO: https://github.com/tdlib/td/issues/1504
-						// var stickerSets *client.StickerSets
-						// var AddedStickerFileIds []int32 // ????
-						// if messageVideo.Video.HasStickers {
-						// 	var err error
-						// 	stickerSets, err = tdlibClient.GetAttachedStickerSets(&client.GetAttachedStickerSetsRequest{
-						// 		FileId: messageVideo.Video.Video.Id,
-						// 	})
-						// 	if err != nil {
-						// 		log.Print("GetAttachedStickerSets() ", err)
-						// 	}
-						// }
-						dsc, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
-							ChatId:    dscChatId,
-							MessageId: newMessageId,
-							InputMessageContent: &client.InputMessageVideo{
-								Video: &client.InputFileRemote{
-									Id: messageVideo.Video.Video.Remote.Id,
-								},
-								Thumbnail: &client.InputThumbnail{
-									Thumbnail: &client.InputFileRemote{
-										Id: messageVideo.Video.Thumbnail.File.Remote.Id,
+									Thumbnail: &client.InputThumbnail{
+										Thumbnail: &client.InputFileRemote{
+											Id: messageDocument.Document.Thumbnail.File.Remote.Id,
+										},
+										Width:  messageDocument.Document.Thumbnail.Width,
+										Height: messageDocument.Document.Thumbnail.Height,
 									},
-									Width:  messageVideo.Video.Thumbnail.Width,
-									Height: messageVideo.Video.Thumbnail.Height,
+									Caption: messageDocument.Caption,
 								},
-								// TODO: AddedStickerFileIds: ,
-								Duration:          messageVideo.Video.Duration,
-								Width:             messageVideo.Video.Width,
-								Height:            messageVideo.Video.Height,
-								SupportsStreaming: messageVideo.Video.SupportsStreaming,
-								Caption:           messageVideo.Caption,
-								// Ttl: ,
-							},
-						})
-						if err != nil {
-							log.Print("EditMessageMedia() ", err)
-						}
-						log.Printf("EditMessageMedia() dsc: %#v", dsc)
-					case ContentModePhoto:
-						messageContent := src.Content
-						messagePhoto := messageContent.(*client.MessagePhoto)
-						dsc, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
-							ChatId:    dscChatId,
-							MessageId: newMessageId,
-							InputMessageContent: &client.InputMessagePhoto{
-								Photo: &client.InputFileRemote{
-									Id: messagePhoto.Photo.Sizes[0].Photo.Remote.Id,
+							})
+							if err != nil {
+								log.Print("EditMessageMedia() ", err)
+							}
+							log.Printf("EditMessageMedia() dsc: %#v", dsc)
+						case ContentModeAudio:
+							messageContent := src.Content
+							messageAudio := messageContent.(*client.MessageAudio)
+							dsc, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
+								ChatId:    dscChatId,
+								MessageId: newMessageId,
+								InputMessageContent: &client.InputMessageAudio{
+									Audio: &client.InputFileRemote{
+										Id: messageAudio.Audio.Audio.Remote.Id,
+									},
+									AlbumCoverThumbnail: &client.InputThumbnail{
+										Thumbnail: &client.InputFileRemote{
+											Id: messageAudio.Audio.AlbumCoverThumbnail.File.Remote.Id,
+										},
+										Width:  messageAudio.Audio.AlbumCoverThumbnail.Width,
+										Height: messageAudio.Audio.AlbumCoverThumbnail.Height,
+									},
+									Title:     messageAudio.Audio.Title,
+									Duration:  messageAudio.Audio.Duration,
+									Performer: messageAudio.Audio.Performer,
+									Caption:   messageAudio.Caption,
 								},
-								// Thumbnail: , // https://github.com/tdlib/td/issues/1505
-								// A: if you use InputFileRemote, then there is no way to change the thumbnail, so there are no reasons to specify it.
-								// TODO: AddedStickerFileIds: ,
-								Width:   messagePhoto.Photo.Sizes[0].Width,
-								Height:  messagePhoto.Photo.Sizes[0].Height,
-								Caption: messagePhoto.Caption,
-								// Ttl: ,
-							},
-						})
-						if err != nil {
-							log.Print("EditMessageMedia() ", err)
+							})
+							if err != nil {
+								log.Print("EditMessageMedia() ", err)
+							}
+							log.Printf("EditMessageMedia() dsc: %#v", dsc)
+						case ContentModeVideo:
+							messageContent := src.Content
+							messageVideo := messageContent.(*client.MessageVideo)
+							// TODO: https://github.com/tdlib/td/issues/1504
+							// var stickerSets *client.StickerSets
+							// var AddedStickerFileIds []int32 // ????
+							// if messageVideo.Video.HasStickers {
+							// 	var err error
+							// 	stickerSets, err = tdlibClient.GetAttachedStickerSets(&client.GetAttachedStickerSetsRequest{
+							// 		FileId: messageVideo.Video.Video.Id,
+							// 	})
+							// 	if err != nil {
+							// 		log.Print("GetAttachedStickerSets() ", err)
+							// 	}
+							// }
+							dsc, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
+								ChatId:    dscChatId,
+								MessageId: newMessageId,
+								InputMessageContent: &client.InputMessageVideo{
+									Video: &client.InputFileRemote{
+										Id: messageVideo.Video.Video.Remote.Id,
+									},
+									Thumbnail: &client.InputThumbnail{
+										Thumbnail: &client.InputFileRemote{
+											Id: messageVideo.Video.Thumbnail.File.Remote.Id,
+										},
+										Width:  messageVideo.Video.Thumbnail.Width,
+										Height: messageVideo.Video.Thumbnail.Height,
+									},
+									// TODO: AddedStickerFileIds: ,
+									Duration:          messageVideo.Video.Duration,
+									Width:             messageVideo.Video.Width,
+									Height:            messageVideo.Video.Height,
+									SupportsStreaming: messageVideo.Video.SupportsStreaming,
+									Caption:           messageVideo.Caption,
+									// Ttl: ,
+								},
+							})
+							if err != nil {
+								log.Print("EditMessageMedia() ", err)
+							}
+							log.Printf("EditMessageMedia() dsc: %#v", dsc)
+						case ContentModePhoto:
+							messageContent := src.Content
+							messagePhoto := messageContent.(*client.MessagePhoto)
+							dsc, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
+								ChatId:    dscChatId,
+								MessageId: newMessageId,
+								InputMessageContent: &client.InputMessagePhoto{
+									Photo: &client.InputFileRemote{
+										Id: messagePhoto.Photo.Sizes[0].Photo.Remote.Id,
+									},
+									// Thumbnail: , // https://github.com/tdlib/td/issues/1505
+									// A: if you use InputFileRemote, then there is no way to change the thumbnail, so there are no reasons to specify it.
+									// TODO: AddedStickerFileIds: ,
+									Width:   messagePhoto.Photo.Sizes[0].Width,
+									Height:  messagePhoto.Photo.Sizes[0].Height,
+									Caption: messagePhoto.Caption,
+									// Ttl: ,
+								},
+							})
+							if err != nil {
+								log.Print("EditMessageMedia() ", err)
+							}
+							log.Printf("EditMessageMedia() dsc: %#v", dsc)
 						}
-						log.Printf("EditMessageMedia() dsc: %#v", dsc)
 					}
-					result = append(result, fmt.Sprintf("to: %s, newMessageId: %d", to, newMessageId))
-
-				}
-				log.Printf("updateMessageEdited ok result: %v", result)
+				}()
 				// for _, forward := range getForwards() {
 				// 	src := updateMessageEdited
 				// 	if src.ChatId == forward.From && forward.WithEdited {
@@ -425,8 +447,41 @@ func main() {
 				// 	}
 				// }
 			} else if updateMessageSendSucceeded, ok := update.(*client.UpdateMessageSendSucceeded); ok {
+				log.Print("updateMessageSendSucceeded go")
 				message := updateMessageSendSucceeded.Message
 				setNewMessageId(message.ChatId, updateMessageSendSucceeded.OldMessageId, message.Id)
+				log.Print("updateMessageSendSucceeded ok")
+			} else if updateDeleteMessages, ok := update.(*client.UpdateDeleteMessages); ok && updateDeleteMessages.IsPermanent {
+				func() {
+					var result []string
+					chatId := updateDeleteMessages.ChatId
+					messageIds := updateDeleteMessages.MessageIds
+					log.Printf("updateDeleteMessages go chatId: %d messageIds: %v", chatId, messageIds)
+					defer func() {
+						log.Printf("updateDeleteMessages ok result: %v", result)
+					}()
+					for _, messageId := range messageIds {
+						fromChatMessageId := fmt.Sprintf("%d:%d", chatId, messageId)
+						toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
+						deleteCopiedMessageIds(fromChatMessageId)
+						for _, toChatMessageId := range toChatMessageIds {
+							a := strings.Split(string(toChatMessageId), ":")
+							dscChatId := int64(convertToInt(a[0]))
+							dscId := int64(convertToInt(a[1]))
+							newMessageId := getNewMessageId(dscChatId, dscId)
+							_, err := tdlibClient.DeleteMessages(&client.DeleteMessagesRequest{
+								ChatId:     dscChatId,
+								MessageIds: []int64{newMessageId},
+								Revoke:     true,
+							})
+							if err != nil {
+								log.Print("DeleteMessages() ", err)
+								continue
+							}
+							result = append(result, fmt.Sprintf("%d:%d", dscChatId, newMessageId))
+						}
+					}
+				}()
 			}
 		}
 	}
@@ -443,18 +498,115 @@ func convertToInt(s string) int {
 
 // ****
 
-type ChatMessageId string // chatId:messageId
+// type ChatMessageId string // ChatId:MessageId
 
-var copiedMessageIds = make(map[ChatMessageId]ChatMessageId) // [To]From
+// var copiedMessageIds = make(map[ChatMessageId][]ChatMessageId) // [From][]To
 
-var newMessageIds = make(map[ChatMessageId]int64)
+const copiedMessageIdsPrefix = "copiedMessageIds"
 
-func setNewMessageId(chatId, oldId, newId int64) {
-	newMessageIds[ChatMessageId(fmt.Sprintf("%d:%d", chatId, oldId))] = newId
+func deleteCopiedMessageIds(fromChatMessageId string) {
+	key := []byte(fmt.Sprintf("%s:%s", copiedMessageIdsPrefix, fromChatMessageId))
+	err := badgerDB.Update(func(txn *badger.Txn) error {
+		return txn.Delete(key)
+	})
+	if err != nil {
+		log.Print(err)
+	}
+	log.Printf("deleteCopiedMessageIds() fromChatMessageId: %s", fromChatMessageId)
 }
 
-func getNewMessageId(chatId, oldId int64) int64 {
-	return newMessageIds[ChatMessageId(fmt.Sprintf("%d:%d", chatId, oldId))]
+func setCopiedMessageIds(fromChatMessageId string, toChatMessageIds []string) {
+	key := []byte(fmt.Sprintf("%s:%s", copiedMessageIdsPrefix, fromChatMessageId))
+	var (
+		err error
+		val []byte
+	)
+	err = badgerDB.Update(func(txn *badger.Txn) error {
+		val = []byte(strings.Join(toChatMessageIds, ","))
+		return txn.Set(key, val)
+	})
+	if err != nil {
+		log.Print("setCopiedMessageIds() ", err)
+	}
+	log.Printf("setCopiedMessageIds() fromChatMessageId: %s toChatMessageIds: %v", fromChatMessageId, toChatMessageIds)
+}
+
+func getCopiedMessageIds(fromChatMessageId string) []string {
+	key := []byte(fmt.Sprintf("%s:%s", copiedMessageIdsPrefix, fromChatMessageId))
+	var (
+		err error
+		val []byte
+	)
+	err = badgerDB.View(func(txn *badger.Txn) error {
+		var item *badger.Item
+		item, err = txn.Get(key)
+		if err != nil {
+			return err
+		}
+		if err != badger.ErrKeyNotFound {
+			val, err = item.ValueCopy(nil)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Print("getCopiedMessageIds() ", err)
+	}
+	toChatMessageIds := []string{}
+	s := fmt.Sprintf("%s", val)
+	if s != "" {
+		// workaround https://stackoverflow.com/questions/28330908/how-to-string-split-an-empty-string-in-go
+		toChatMessageIds = strings.Split(s, ",")
+	}
+	log.Printf("getCopiedMessageIds() fromChatMessageId: %s toChatMessageIds: %v", fromChatMessageId, toChatMessageIds)
+	return toChatMessageIds
+}
+
+// var newMessageIds = make(map[ChatMessageId]int64)
+
+const newMessageIdPrefix = "newMessageId"
+
+func setNewMessageId(chatId, tmpMessageId, newMessageId int64) {
+	key := []byte(fmt.Sprintf("%s:%d:%d", newMessageIdPrefix, chatId, tmpMessageId))
+	val := []byte(fmt.Sprintf("%d", newMessageId))
+	err := badgerDB.Update(func(txn *badger.Txn) error {
+		err := txn.Set(key, val)
+		return err
+	})
+	if err != nil {
+		log.Print("setNewMessageId() ", err)
+	}
+	log.Printf("setNewMessageId() key: %d:%d val: %d", chatId, tmpMessageId, newMessageId)
+	// newMessageIds[ChatMessageId(fmt.Sprintf("%d:%d", chatId, tmpMessageId))] = newMessageId
+}
+
+func getNewMessageId(chatId, tmpMessageId int64) int64 {
+	key := []byte(fmt.Sprintf("%s:%d:%d", newMessageIdPrefix, chatId, tmpMessageId))
+	var (
+		err error
+		val []byte
+	)
+	err = badgerDB.View(func(txn *badger.Txn) error {
+		var item *badger.Item
+		item, err = txn.Get(key)
+		if err != nil {
+			return err
+		}
+		val, err = item.ValueCopy(nil)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		log.Print("getNewMessageId() ", err)
+	}
+	newMessageId := int64(convertToInt(fmt.Sprintf("%s", val)))
+	log.Printf("getNewMessageId() key: %d:%d val: %d", chatId, tmpMessageId, newMessageId)
+	return newMessageId
+	// return newMessageIds[ChatMessageId(fmt.Sprintf("%d:%d", chatId, tmpMessageId))]
 }
 
 // func getEditedLabel(isEdited bool) string {
@@ -510,7 +662,7 @@ func getNewMessageId(chatId, oldId int64) int64 {
 // 	}
 // }
 
-func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dscChatId int64, forward config.Forward) {
+func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dscChatId int64, forward config.Forward, copiedMessageIds *map[string][]string) {
 	var messageIds []int64
 	for _, message := range messages {
 		messageIds = append(messageIds, message.Id)
@@ -543,9 +695,15 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 			}
 			dscId := dsc.Id
 			srcId := messageIds[i]
-			to := ChatMessageId(fmt.Sprintf("%d:%d", dscChatId, dscId))
-			from := ChatMessageId(fmt.Sprintf("%d:%d", srcChatId, srcId))
-			copiedMessageIds[to] = from
+			toChatMessageId := fmt.Sprintf("%d:%d", dscChatId, dscId)
+			fromChatMessageId := fmt.Sprintf("%d:%d", srcChatId, srcId)
+			// copiedMessageIds[to] = from
+			// setCopiedFromMessageId(fromChatMessageId, toChatMessageId)
+			m := *copiedMessageIds
+			a := m[fromChatMessageId]
+			a = append(a, toChatMessageId)
+			m[fromChatMessageId] = a
+			*copiedMessageIds = m
 		}
 	}
 }
@@ -865,15 +1023,16 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward) {
 	isFilters := false
 	isOther := false
 	var forwardedTo []int64
+	copiedMessageIds := make(map[string][]string) // [From][]To
 	if checkFilters(formattedText, forward, &isOther) {
 		isFilters = true
 		for _, dscChatId := range forward.To {
-			forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward)
+			forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward, &copiedMessageIds)
 			forwardedTo = append(forwardedTo, dscChatId)
 		}
 	} else if isOther && forward.Other != 0 {
 		dscChatId := forward.Other
-		forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward)
+		forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward, &copiedMessageIds)
 		forwardedTo = append(forwardedTo, dscChatId)
 		if forward.SendCopy && forward.SourceTitle != "" {
 			messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
@@ -927,6 +1086,9 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward) {
 				}
 			}
 		}
+	}
+	for fromChatMessageId, toChatMessageIds := range copiedMessageIds {
+		setCopiedMessageIds(fromChatMessageId, toChatMessageIds)
 	}
 	log.Printf("updateNewMessage ok isFilters: %t isOther: %t forwardedTo: %v", isFilters, isOther, forwardedTo)
 }

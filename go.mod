@@ -3,6 +3,7 @@ module github.com/comerc/budva32
 go 1.16
 
 require (
+	github.com/dgraph-io/badger v1.6.2
 	github.com/ghodss/yaml v1.0.0
 	github.com/joho/godotenv v1.3.0
 	github.com/radovskyb/watcher v1.0.7
