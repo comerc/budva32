@@ -26,7 +26,10 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: сегодня копировальщик просмотрел 1111 сообщений и отобрал из них 11
+// TODO: за 24 часа копировальщик просмотрел 1111 сообщений и отобрал из них 11
+// TODO: разблюдовать паузу по чатам
+// TODO: фильтры, как исполняемые скрипты на node.js
+// TODO: ротация лога
 // TODO: подменять ссылки внутри сообщений на целевую группу / канал
 // TODO: синхронизировать закреп сообщений
 // TODO: Restart Go program by itself:
@@ -221,13 +224,15 @@ func main() {
 				for _, forward := range getForwards() {
 					src := updateNewMessage.Message
 					if src.ChatId == forward.From && src.CanBeForwarded {
+						forward := forward // !!!
 						if src.MediaAlbumId == 0 {
-							time.Sleep(3 * time.Second) // иначе бот не успевает вставить своё
-							doUpdateNewMessage([]*client.Message{src}, forward)
+							time.Sleep(pause) // иначе бот не успевает вставить своё
+							go func() {
+								doUpdateNewMessage([]*client.Message{src}, forward)
+							}()
 						} else {
 							isFirstMessage := addMessageToMediaAlbum(src)
 							if isFirstMessage {
-								forward := forward // !!!
 								go handleMediaAlbum(src.MediaAlbumId,
 									func(messages []*client.Message) {
 										doUpdateNewMessage(messages, forward)
@@ -452,10 +457,13 @@ func main() {
 				setNewMessageId(message.ChatId, updateMessageSendSucceeded.OldMessageId, message.Id)
 				log.Print("updateMessageSendSucceeded ok")
 			} else if updateDeleteMessages, ok := update.(*client.UpdateDeleteMessages); ok && updateDeleteMessages.IsPermanent {
-				func() {
+				chatId := updateDeleteMessages.ChatId
+				messageIds := updateDeleteMessages.MessageIds
+				// нужна задержка, т.к. добавляются тоже с задержкой
+				// TODO: беда с альбомами - задерка накапливается
+				time.Sleep(pause)
+				go func() {
 					var result []string
-					chatId := updateDeleteMessages.ChatId
-					messageIds := updateDeleteMessages.MessageIds
 					log.Printf("updateDeleteMessages go chatId: %d messageIds: %v", chatId, messageIds)
 					defer func() {
 						log.Printf("updateDeleteMessages ok result: %v", result)
@@ -1004,9 +1012,10 @@ func getMediaAlbumMessages(id client.JsonInt64) []*client.Message {
 	return messages
 }
 
+const pause = 3 * time.Second
+
 func handleMediaAlbum(id client.JsonInt64, cb func(messages []*client.Message)) {
 	diff := getMediaAlbumLastReceivedDiff(id)
-	const pause = 3 * time.Second
 	if diff < pause {
 		time.Sleep(pause)
 		handleMediaAlbum(id, cb)
