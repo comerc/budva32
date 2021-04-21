@@ -227,8 +227,6 @@ func main() {
 
 	go runQueue()
 
-	const waitForForward = 3 * time.Second // чтобы бот успел отреагировать на сообщение
-
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
@@ -249,7 +247,6 @@ func main() {
 							log.Print("wg.Add(1) for src.Id: ", src.Id)
 							forward := forward // !!! copy for go routine
 							fn := func() {
-								time.Sleep(waitForForward)
 								defer func() {
 									wg.Done()
 									log.Print("wg.Done() for src.Id: ", src.Id)
@@ -266,7 +263,6 @@ func main() {
 								go handleMediaAlbum(i, src.MediaAlbumId,
 									func(messages []*client.Message) {
 										fn := func() {
-											time.Sleep(waitForForward)
 											defer func() {
 												wg.Done()
 												log.Print("wg.Done() for src.Id: ", src.Id)
@@ -802,6 +798,7 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 	for _, message := range messages {
 		messageIds = append(messageIds, message.Id)
 	}
+	time.Sleep(waitForForward)
 	forwardedMessages, err := tdlibClient.ForwardMessages(&client.ForwardMessagesRequest{
 		ChatId:     dscChatId,
 		FromChatId: srcChatId,
@@ -1407,3 +1404,5 @@ func distinct(a []string) []string {
 	}
 	return result
 }
+
+const waitForForward = 15 * time.Second // чтобы бот успел отреагировать на сообщение
