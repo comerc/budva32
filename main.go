@@ -28,9 +28,8 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: пересылка альбомов не работает при нескольких одинаковых From
 // TODO: подменять ссылки внутри сообщений на целевую группу / канал
-// TODO: разблюдовать паузу по чатам
+// TODO: разблюдовать очереди по чатам для waitForForward и можно вынести в конфиг
 // TODO: падает при удалении целевого чата?
 // TODO: для этого канала за 24 часа копировальщик просмотрел 1111 сообщений и отложил на проверку 22
 // TODO: фильтры, как исполняемые скрипты на node.js
@@ -228,6 +227,8 @@ func main() {
 
 	go runQueue()
 
+	const waitForForward = 3 * time.Second // чтобы бот успел отреагировать на сообщение
+
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
@@ -235,7 +236,7 @@ func main() {
 				forwardedToChatIds := make(map[int64]bool) // [dscChatId]isForwarded
 				var wg sync.WaitGroup                      // for forwardedToChatIds
 				// configData := getConfig()
-				for _, forward := range configData.Forwards {
+				for i, forward := range configData.Forwards {
 					if src.ChatId == forward.From && src.CanBeForwarded {
 						for _, dscChatId := range forward.To {
 							_, isPresent := forwardedToChatIds[dscChatId]
@@ -248,7 +249,7 @@ func main() {
 							log.Print("wg.Add(1) for src.Id: ", src.Id)
 							forward := forward // !!! copy for go routine
 							fn := func() {
-								time.Sleep(3 * time.Second)
+								time.Sleep(waitForForward)
 								defer func() {
 									wg.Done()
 									log.Print("wg.Done() for src.Id: ", src.Id)
@@ -257,15 +258,15 @@ func main() {
 							}
 							queue.PushBack(fn)
 						} else {
-							isFirstMessage := addMessageToMediaAlbum(src)
+							isFirstMessage := addMessageToMediaAlbum(i, src)
 							if isFirstMessage {
 								wg.Add(1)
 								log.Print("wg.Add(1) for src.Id: ", src.Id)
 								forward := forward // !!! copy for go routine
-								go handleMediaAlbum(src.MediaAlbumId,
+								go handleMediaAlbum(i, src.MediaAlbumId,
 									func(messages []*client.Message) {
 										fn := func() {
-											time.Sleep(3 * time.Second)
+											time.Sleep(waitForForward)
 											defer func() {
 												wg.Done()
 												log.Print("wg.Done() for src.Id: ", src.Id)
@@ -513,6 +514,7 @@ func main() {
 			} else if updateDeleteMessages, ok := update.(*client.UpdateDeleteMessages); ok && updateDeleteMessages.IsPermanent {
 				chatId := updateDeleteMessages.ChatId
 				messageIds := updateDeleteMessages.MessageIds
+				// TODO: delete требует ожидания waitForForward и накапливаемого waitForMediaAlbum
 				fn := func() {
 					var result []string
 					log.Printf("updateDeleteMessages go chatId: %d messageIds: %v", chatId, messageIds)
@@ -1089,44 +1091,46 @@ type MediaAlbum struct {
 	lastReceived time.Time
 }
 
-var mediaAlbums = make(map[client.JsonInt64]MediaAlbum)
+var mediaAlbums = make(map[string]MediaAlbum) // int : client.JsonInt64
 
 // https://github.com/tdlib/td/issues/1482
-func addMessageToMediaAlbum(message *client.Message) bool {
-	item, ok := mediaAlbums[message.MediaAlbumId]
+func addMessageToMediaAlbum(i int, message *client.Message) bool {
+	key := fmt.Sprintf("%d:%d", i, message.MediaAlbumId)
+	item, ok := mediaAlbums[key]
 	if !ok {
 		item = MediaAlbum{}
 	}
 	item.messages = append(item.messages, message)
 	item.lastReceived = time.Now()
-	mediaAlbums[message.MediaAlbumId] = item
+	mediaAlbums[key] = item
 	return !ok
 }
 
-func getMediaAlbumLastReceivedDiff(id client.JsonInt64) time.Duration {
+func getMediaAlbumLastReceivedDiff(key string) time.Duration {
 	mediaAlbumsMu.Lock()
 	defer mediaAlbumsMu.Unlock()
-	return time.Since(mediaAlbums[id].lastReceived)
+	return time.Since(mediaAlbums[key].lastReceived)
 }
 
-func getMediaAlbumMessages(id client.JsonInt64) []*client.Message {
+func getMediaAlbumMessages(key string) []*client.Message {
 	mediaAlbumsMu.Lock()
 	defer mediaAlbumsMu.Unlock()
-	messages := mediaAlbums[id].messages
-	delete(mediaAlbums, id)
+	messages := mediaAlbums[key].messages
+	delete(mediaAlbums, key)
 	return messages
 }
 
-const pause = 3 * time.Second
+const waitForMediaAlbum = 3 * time.Second
 
-func handleMediaAlbum(id client.JsonInt64, cb func(messages []*client.Message)) {
-	diff := getMediaAlbumLastReceivedDiff(id)
-	if diff < pause {
-		time.Sleep(pause - diff)
-		handleMediaAlbum(id, cb)
+func handleMediaAlbum(i int, id client.JsonInt64, cb func(messages []*client.Message)) {
+	key := fmt.Sprintf("%d:%d", i, id)
+	diff := getMediaAlbumLastReceivedDiff(key)
+	if diff < waitForMediaAlbum {
+		time.Sleep(waitForMediaAlbum - diff)
+		handleMediaAlbum(i, id, cb)
 		return
 	}
-	messages := getMediaAlbumMessages(id)
+	messages := getMediaAlbumMessages(key)
 	cb(messages)
 }
 
