@@ -1,7 +1,9 @@
 package main
 
 import (
+	"container/list"
 	"crypto/subtle"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,11 +28,13 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: за 24 часа копировальщик просмотрел 1111 сообщений и отобрал из них 11
+// TODO: пересылка альбомов не работает при нескольких одинаковых From
+// TODO: подменять ссылки внутри сообщений на целевую группу / канал
 // TODO: разблюдовать паузу по чатам
+// TODO: падает при удалении целевого чата?
+// TODO: для этого канала за 24 часа копировальщик просмотрел 1111 сообщений и отложил на проверку 22
 // TODO: фильтры, как исполняемые скрипты на node.js
 // TODO: ротация лога
-// TODO: подменять ссылки внутри сообщений на целевую группу / канал
 // TODO: синхронизировать закреп сообщений
 // TODO: Restart Go program by itself:
 // https://github.com/rcrowley/goagain
@@ -41,13 +45,14 @@ const (
 )
 
 var (
-	inputCh       = make(chan string, 1)
-	outputCh      = make(chan string, 1)
-	forwards      []config.Forward
+	inputCh  = make(chan string, 1)
+	outputCh = make(chan string, 1)
+	//
+	configData    *config.Config
 	tdlibClient   *client.Client
 	mediaAlbumsMu sync.Mutex
-	forwardsMu    sync.Mutex
-	badgerDB      *badger.DB
+	// configMu      sync.Mutex
+	badgerDB *badger.DB
 )
 
 func main() {
@@ -98,10 +103,11 @@ func main() {
 		tmp, err := config.Load()
 		if err != nil {
 			log.Printf("Can't initialise config: %s", err)
+			return
 		}
-		forwardsMu.Lock()
-		defer forwardsMu.Unlock()
-		forwards = tmp
+		// configMu.Lock()
+		// defer configMu.Unlock()
+		configData = tmp
 	})
 
 	go func() {
@@ -218,33 +224,80 @@ func main() {
 
 	defer handlePanic()
 
+	go runReports()
+
+	go runQueue()
+
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
-				for _, forward := range getForwards() {
-					src := updateNewMessage.Message
+				src := updateNewMessage.Message
+				forwardedToChatIds := make(map[int64]bool) // [dscChatId]isForwarded
+				var wg sync.WaitGroup                      // for forwardedToChatIds
+				// configData := getConfig()
+				for _, forward := range configData.Forwards {
 					if src.ChatId == forward.From && src.CanBeForwarded {
-						forward := forward // !!!
+						for _, dscChatId := range forward.To {
+							_, isPresent := forwardedToChatIds[dscChatId]
+							if !isPresent {
+								forwardedToChatIds[dscChatId] = false
+							}
+						}
 						if src.MediaAlbumId == 0 {
-							time.Sleep(pause) // иначе бот не успевает вставить своё
-							go func() {
-								doUpdateNewMessage([]*client.Message{src}, forward)
-							}()
+							wg.Add(1)
+							log.Print("wg.Add(1) for src.Id: ", src.Id)
+							forward := forward // !!! copy for go routine
+							fn := func() {
+								time.Sleep(3 * time.Second)
+								defer func() {
+									wg.Done()
+									log.Print("wg.Done() for src.Id: ", src.Id)
+								}()
+								doUpdateNewMessage([]*client.Message{src}, forward, forwardedToChatIds)
+							}
+							queue.PushBack(fn)
 						} else {
 							isFirstMessage := addMessageToMediaAlbum(src)
 							if isFirstMessage {
+								wg.Add(1)
+								log.Print("wg.Add(1) for src.Id: ", src.Id)
+								forward := forward // !!! copy for go routine
 								go handleMediaAlbum(src.MediaAlbumId,
 									func(messages []*client.Message) {
-										doUpdateNewMessage(messages, forward)
+										fn := func() {
+											time.Sleep(3 * time.Second)
+											defer func() {
+												wg.Done()
+												log.Print("wg.Done() for src.Id: ", src.Id)
+											}()
+											doUpdateNewMessage(messages, forward, forwardedToChatIds)
+										}
+										queue.PushBack(fn)
 									})
 							}
 						}
 					}
 				}
+				if len(forwardedToChatIds) > 0 {
+					go func() {
+						wg.Wait()
+						log.Print("wg.Wait() for src.Id: ", src.Id)
+						for dscChatId, isForwarded := range forwardedToChatIds {
+							if isForwarded {
+								incrementForwardedMessages(dscChatId)
+							}
+							incrementViewedMessages(dscChatId)
+						}
+						// TODO: исключать сообщения из forwardOtherChatIds, когда они попали по пересечению одинаковых From <-> Other
+						// TODO: отправлять сообщения из forwardOtherChatIds после обработки forwardedToChatIds
+					}()
+				}
 			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
-				func() {
+				chatId := updateMessageEdited.ChatId
+				messageId := updateMessageEdited.MessageId
+				fn := func() {
 					var result []string
-					fromChatMessageId := fmt.Sprintf("%d:%d", updateMessageEdited.ChatId, updateMessageEdited.MessageId)
+					fromChatMessageId := fmt.Sprintf("%d:%d", chatId, messageId)
 					toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
 					log.Printf("updateMessageEdited go fromChatMessageId: %s toChatMessageIds: %v", fromChatMessageId, toChatMessageIds)
 					defer func() {
@@ -254,8 +307,8 @@ func main() {
 						return
 					}
 					src, err := tdlibClient.GetMessage(&client.GetMessageRequest{
-						ChatId:    updateMessageEdited.ChatId,
-						MessageId: updateMessageEdited.MessageId,
+						ChatId:    chatId,
+						MessageId: messageId,
 					})
 					if err != nil {
 						log.Print("GetMessage() src ", err)
@@ -436,8 +489,9 @@ func main() {
 							log.Printf("EditMessageMedia() dsc: %#v", dsc)
 						}
 					}
-				}()
-				// for _, forward := range getForwards() {
+				}
+				queue.PushBack(fn)
+				// for _, forward := range getConfig().Forwards {
 				// 	src := updateMessageEdited
 				// 	if src.ChatId == forward.From && forward.WithEdited {
 				// 		src, err := tdlibClient.GetMessage(&client.GetMessageRequest{
@@ -459,10 +513,7 @@ func main() {
 			} else if updateDeleteMessages, ok := update.(*client.UpdateDeleteMessages); ok && updateDeleteMessages.IsPermanent {
 				chatId := updateDeleteMessages.ChatId
 				messageIds := updateDeleteMessages.MessageIds
-				// нужна задержка, т.к. добавляются тоже с задержкой
-				// TODO: беда с альбомами - задерка накапливается
-				time.Sleep(pause)
-				go func() {
+				fn := func() {
 					var result []string
 					log.Printf("updateDeleteMessages go chatId: %d messageIds: %v", chatId, messageIds)
 					defer func() {
@@ -489,7 +540,62 @@ func main() {
 							result = append(result, fmt.Sprintf("%d:%d", dscChatId, newMessageId))
 						}
 					}
-				}()
+				}
+				queue.PushBack(fn)
+			}
+		}
+	}
+}
+
+func runReports() {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for t := range ticker.C {
+		utc := t.UTC()
+		h := utc.Hour()
+		if h == 0 {
+			// configData := getConfig()
+			for _, toChatId := range configData.Reports.To {
+				date := time.Now().UTC().Format("2006-01-02")
+				var viewed, forwarded int64
+				{
+					key := []byte(fmt.Sprintf("%s:%d:%s", viewedMessagesPrefix, toChatId, date))
+					val := getByDB(key)
+					if len(val) == 0 {
+						viewed = 0
+					} else {
+						viewed = int64(bytesToUint64(val))
+					}
+				}
+				{
+					key := []byte(fmt.Sprintf("%s:%d:%s", forwardedMessagesPrefix, toChatId, date))
+					val := getByDB(key)
+					if len(val) == 0 {
+						forwarded = 0
+					} else {
+						forwarded = int64(bytesToUint64(val))
+					}
+				}
+				formattedText, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
+					Text: fmt.Sprintf(escape(configData.Reports.Template), forwarded, viewed),
+					ParseMode: &client.TextParseModeMarkdown{
+						Version: 2,
+					},
+				})
+				if err != nil {
+					log.Print("ParseTextEntities() ", err)
+				} else {
+					if _, err := tdlibClient.SendMessage(&client.SendMessageRequest{
+						ChatId: toChatId,
+						InputMessageContent: &client.InputMessageText{
+							Text:                  formattedText,
+							DisableWebPagePreview: true,
+							ClearDraft:            true,
+						},
+					}); err != nil {
+						log.Print("SendMessage() ", err)
+					}
+				}
 			}
 		}
 	}
@@ -670,7 +776,8 @@ func getNewMessageId(chatId, tmpMessageId int64) int64 {
 // 	}
 // }
 
-func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dscChatId int64, forward config.Forward, copiedMessageIds *map[string][]string) {
+func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dscChatId int64, forward config.Forward, copiedMessageIds map[string][]string) {
+	log.Printf("forwardNewMessages() srcChatId: %d dscChatId: %d", srcChatId, dscChatId)
 	var messageIds []int64
 	for _, message := range messages {
 		messageIds = append(messageIds, message.Id)
@@ -707,11 +814,9 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 			fromChatMessageId := fmt.Sprintf("%d:%d", srcChatId, srcId)
 			// copiedMessageIds[to] = from
 			// setCopiedFromMessageId(fromChatMessageId, toChatMessageId)
-			m := *copiedMessageIds
-			a := m[fromChatMessageId]
+			a := copiedMessageIds[fromChatMessageId]
 			a = append(a, toChatMessageId)
-			m[fromChatMessageId] = a
-			*copiedMessageIds = m
+			copiedMessageIds[fromChatMessageId] = a
 		}
 	}
 }
@@ -1017,7 +1122,7 @@ const pause = 3 * time.Second
 func handleMediaAlbum(id client.JsonInt64, cb func(messages []*client.Message)) {
 	diff := getMediaAlbumLastReceivedDiff(id)
 	if diff < pause {
-		time.Sleep(pause)
+		time.Sleep(pause - diff)
 		handleMediaAlbum(id, cb)
 		return
 	}
@@ -1025,23 +1130,32 @@ func handleMediaAlbum(id client.JsonInt64, cb func(messages []*client.Message)) 
 	cb(messages)
 }
 
-func doUpdateNewMessage(messages []*client.Message, forward config.Forward) {
+func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forwardedToChatIds map[int64]bool) {
 	src := messages[0]
 	formattedText, _ := getFormattedText(src.Content)
 	log.Printf("updateNewMessage go ChatId: %d Id: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText != nil && formattedText.Text != "", src.MediaAlbumId)
-	isFilters := false
-	isOther := false
-	var forwardedTo []int64
+	// for log
+	var (
+		isFilters   = false
+		isOther     = false
+		forwardedTo []int64
+	)
+	defer func() {
+		log.Printf("updateNewMessage ok ChatId: %d Id: %d isFilters: %t isOther: %t forwardedTo: %v", src.ChatId, src.Id, isFilters, isOther, forwardedTo)
+	}()
 	copiedMessageIds := make(map[string][]string) // [From][]To
 	if checkFilters(formattedText, forward, &isOther) {
 		isFilters = true
 		for _, dscChatId := range forward.To {
-			forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward, &copiedMessageIds)
-			forwardedTo = append(forwardedTo, dscChatId)
+			if isNotForwardedToChatIds(forwardedToChatIds, dscChatId) {
+				forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward, copiedMessageIds)
+				forwardedTo = append(forwardedTo, dscChatId)
+			}
 		}
 	} else if isOther && forward.Other != 0 {
 		dscChatId := forward.Other
-		forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward, &copiedMessageIds)
+		// TODO: не допускать дубли в forwardOtherChatIds
+		forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward, copiedMessageIds)
 		forwardedTo = append(forwardedTo, dscChatId)
 		if forward.SendCopy && forward.SourceTitle != "" {
 			messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
@@ -1099,7 +1213,6 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward) {
 	for fromChatMessageId, toChatMessageIds := range copiedMessageIds {
 		setCopiedMessageIds(fromChatMessageId, toChatMessageIds)
 	}
-	log.Printf("updateNewMessage ok isFilters: %t isOther: %t forwardedTo: %v", isFilters, isOther, forwardedTo)
 }
 
 // func doUpdateMessageEdited(src *client.Message, forward config.Forward) {
@@ -1133,12 +1246,12 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward) {
 // 	// log.Printf("updateMessageEdited ok forwardedTo: %v", forwardedTo)
 // }
 
-func getForwards() []config.Forward {
-	forwardsMu.Lock()
-	defer forwardsMu.Unlock()
-	result := forwards // ???
-	return result
-}
+// func getConfig() *config.Config {
+// 	configMu.Lock()
+// 	defer configMu.Unlock()
+// 	result := configData // ???
+// 	return result
+// }
 
 func handlePanic() {
 	if err := recover(); err != nil {
@@ -1150,4 +1263,112 @@ func handlePanic() {
 func escape(s string) string {
 	re := regexp.MustCompile(`[.|\-|\_|(|)|#|!]`)
 	return re.ReplaceAllString(s, `\$0`)
+}
+
+const viewedMessagesPrefix = "viewedMsgs"
+
+func incrementViewedMessages(toChatId int64) {
+	date := time.Now().UTC().Format("2006-01-02")
+	key := []byte(fmt.Sprintf("%s:%d:%s", viewedMessagesPrefix, toChatId, date))
+	val := incrementByDB(key)
+	log.Printf("incrementViewedMessages() key: %s val: %d", key, int64(bytesToUint64(val)))
+}
+
+const forwardedMessagesPrefix = "forwardedMsgs"
+
+func incrementForwardedMessages(toChatId int64) {
+	date := time.Now().UTC().Format("2006-01-02")
+	key := []byte(fmt.Sprintf("%s:%d:%s", forwardedMessagesPrefix, toChatId, date))
+	val := incrementByDB(key)
+	log.Printf("incrementForwardedMessages() key: %s val: %d", key, int64(bytesToUint64(val)))
+}
+
+var forwardedToChatIdsMu sync.Mutex
+
+func isNotForwardedToChatIds(forwardedToChatIds map[int64]bool, dscChatId int64) bool {
+	forwardedToChatIdsMu.Lock()
+	defer forwardedToChatIdsMu.Unlock()
+	if !forwardedToChatIds[dscChatId] {
+		forwardedToChatIds[dscChatId] = true
+		return true
+	}
+	return false
+}
+
+// **** db routines
+
+func uint64ToBytes(i uint64) []byte {
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], i)
+	return buf[:]
+}
+
+func bytesToUint64(b []byte) uint64 {
+	return binary.BigEndian.Uint64(b)
+}
+
+func incrementByDB(key []byte) []byte {
+	// Merge function to add two uint64 numbers
+	add := func(existing, new []byte) []byte {
+		return uint64ToBytes(bytesToUint64(existing) + bytesToUint64(new))
+	}
+	m := badgerDB.GetMergeOperator(key, add, 200*time.Millisecond)
+	defer m.Stop()
+	m.Add(uint64ToBytes(1))
+	result, _ := m.Get()
+	return result
+}
+
+func getByDB(key []byte) []byte {
+	var (
+		err error
+		val []byte
+	)
+	err = badgerDB.View(func(txn *badger.Txn) error {
+		var item *badger.Item
+		item, err = txn.Get(key)
+		if err != nil {
+			return err
+		}
+		val, err = item.ValueCopy(nil)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("getByDB() key: %s %s", key, err)
+	} else {
+		log.Printf("getByDB() key: %s, val: %#v", key, val)
+	}
+	return val
+}
+
+// func deleteByDB(key []byte) {
+// 	err := badgerDB.Update(func(txn *badger.Txn) error {
+// 		return txn.Delete(key)
+// 	})
+// 	if err != nil {
+// 		log.Print(err)
+// 	}
+// }
+
+// TODO: потокобезопасное взаимодействие с queue?
+
+var queue = list.New()
+
+func runQueue() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for t := range ticker.C {
+		_ = t
+		// log.Print(t.UTC().Second())
+		front := queue.Front()
+		if front != nil {
+			fn := front.Value.(func())
+			fn()
+			// This will remove the allocated memory and avoid memory leaks
+			queue.Remove(front)
+		}
+	}
 }

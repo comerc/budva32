@@ -15,37 +15,41 @@ import (
 
 var path = filepath.Join(".", fileName)
 
-func Load() ([]Forward, error) {
+func Load() (*Config, error) {
 	var (
-		forwards []Forward
-		err      error
-		file     *os.File
-		yamlData []byte
-		jsonData []byte
+		configData Config
+		err        error
+		file       *os.File
+		yamlData   []byte
+		jsonData   []byte
 	)
 
 	file, err = os.Open(path)
 	if err != nil {
 		log.Printf("Failed to open file %s: %s", path, err)
+		return nil, err
 	}
 	defer file.Close()
 
 	yamlData, err = ioutil.ReadAll(file)
 	if err != nil {
 		log.Printf("Failed to read file %s: %s", path, err)
+		return nil, err
 	}
 
 	jsonData, err = yaml.YAMLToJSON(yamlData)
 	if err != nil {
 		log.Printf("Failed to convert file %s with YAMLToJSON: %s", path, err)
+		return nil, err
 	}
 
-	err = json.Unmarshal(jsonData, &forwards)
+	err = json.Unmarshal(jsonData, &configData)
 	if err != nil {
 		log.Printf("Failed to unmarshal file %s: %s", path, err)
+		return nil, err
 	}
 
-	for _, forward := range forwards {
+	for _, forward := range configData.Forwards {
 		for _, dscChatId := range forward.To {
 			if forward.From == dscChatId {
 				err := fmt.Errorf("destination Id cannot be equal to source Id %d", dscChatId)
@@ -54,7 +58,7 @@ func Load() ([]Forward, error) {
 		}
 	}
 
-	return forwards, err
+	return &configData, err
 }
 
 func Watch(reload func()) {
