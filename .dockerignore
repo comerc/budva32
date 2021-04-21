@@ -1,5 +1,5 @@
 .git/
-tdata/
+.tdata/
 .env
 config.yml
 .dockerignore

@@ -62,7 +62,7 @@ func main() {
 		log.Fatalf("Error loading .env file")
 	}
 
-	path := filepath.Join(".", "tdata")
+	path := filepath.Join(".", ".tdata")
 	if _, err = os.Stat(path); os.IsNotExist(err) {
 		os.Mkdir(path, os.ModePerm)
 	}
@@ -638,13 +638,31 @@ func setCopiedMessageIds(fromChatMessageId string, toChatMessageIds []string) {
 		val []byte
 	)
 	err = badgerDB.Update(func(txn *badger.Txn) error {
+		// var item *badger.Item
+		// item, err = txn.Get(key)
+		// if err != nil && err != badger.ErrKeyNotFound {
+		// 	return err
+		// }
+		// if err != badger.ErrKeyNotFound {
+		// 	val, err = item.ValueCopy(nil)
+		// 	if err != nil {
+		// 		return err
+		// 	}
+		// }
+		// result := []string{}
+		// s := fmt.Sprintf("%s", val)
+		// if s != "" {
+		// 	// workaround https://stackoverflow.com/questions/28330908/how-to-string-split-an-empty-string-in-go
+		// 	result = strings.Split(s, ",")
+		// }
+		// val = []byte(strings.Join(distinct(append(result, toChatMessageIds...)), ","))
 		val = []byte(strings.Join(toChatMessageIds, ","))
 		return txn.Set(key, val)
 	})
 	if err != nil {
 		log.Print("setCopiedMessageIds() ", err)
 	}
-	log.Printf("setCopiedMessageIds() fromChatMessageId: %s toChatMessageIds: %v", fromChatMessageId, toChatMessageIds)
+	log.Printf("setCopiedMessageIds() fromChatMessageId: %s toChatMessageIds: %v val: %s", fromChatMessageId, toChatMessageIds, val)
 }
 
 func getCopiedMessageIds(fromChatMessageId string) []string {
@@ -1215,7 +1233,8 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 		}
 	}
 	for fromChatMessageId, toChatMessageIds := range copiedMessageIds {
-		setCopiedMessageIds(fromChatMessageId, toChatMessageIds)
+		a := getCopiedMessageIds(fromChatMessageId)
+		setCopiedMessageIds(fromChatMessageId, distinct(append(a, toChatMessageIds...)))
 	}
 }
 
@@ -1375,4 +1394,16 @@ func runQueue() {
 			queue.Remove(front)
 		}
 	}
+}
+
+func distinct(a []string) []string {
+	set := make(map[string]struct{})
+	for _, val := range a {
+		set[val] = struct{}{}
+	}
+	result := make([]string, 0, len(set))
+	for key := range set {
+		result = append(result, key)
+	}
+	return result
 }
