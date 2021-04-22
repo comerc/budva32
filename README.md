@@ -52,20 +52,30 @@ $ sudo chmod -R 777 ./tdata
 ## config.yml example
 
 ```yml
-- From: -1111
-	To: [-2222]
-- From: -1234
-	To: [-4321, -8888]
-  Other: -4444
-	SendCopy: true
-	SourceTitle: "*FTT*☝️" # for Other with SendCopy (with markdown)
-	# WithEdited: true # deprecated
-	Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
-	Include: '#ARK|#Идеи_покупок|#ОТЧЕТЫ'
-	IncludeSubmatch:
-		- Regexp: '(^|[^A-Z])\$([A-Z]+)'
-			Group: 2
-			Match: ['F', 'GM', 'TSLA']
+Others:
+  -4444:
+    SourceTitle: "*Channel Name*☝️" # for SendCopy (with markdown)
+Reports:
+  To: [
+      -2222,
+      -4321,
+      -8888,
+    ]
+  Template: "За *24 часа* отобрал: *%d* из *%d* 😎" # (with markdown)
+Forwards:
+	- From: -1111
+		To: [-2222]
+		WoSendCopy: true
+	- From: -1234
+		To: [-4321, -8888]
+		Other: -4444
+		# WithEdited: true # deprecated
+		Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
+		Include: '#ARK|#Идеи_покупок|#ОТЧЕТЫ'
+		IncludeSubmatch:
+			- Regexp: '(^|[^A-Z])\$([A-Z]+)'
+				Group: 2
+				Match: ['F', 'GM', 'TSLA']
 ```
 
 ## Get chat list with limit (optional)

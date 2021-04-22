@@ -3,8 +3,13 @@ package config
 const fileName = "config.yml"
 
 type Config struct {
-	Forwards []Forward
+	Others   map[int64]Other
 	Reports  Reports
+	Forwards []Forward
+}
+
+type Other struct {
+	SourceTitle string
 }
 
 type Reports struct {
@@ -19,9 +24,8 @@ type Forward struct {
 	Exclude         string
 	Include         string
 	IncludeSubmatch []IncludeSubmatch
-	SourceTitle     string
-	SendCopy        bool
-	// WithEdited      bool
+	WoSendCopy      bool
+	// TODO: WithEdited bool
 }
 
 type IncludeSubmatch struct {
