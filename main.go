@@ -28,8 +28,8 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: edit & delete требуют ожидания waitForForward и накапливаемого waitForMediaAlbum (или забить?)
 // TODO: подменять ссылки внутри сообщений на целевую группу / канал
-// TODO: разблюдовать очереди по чатам для waitForForward и можно вынести в конфиг
 // TODO: падает при удалении целевого чата?
 // TODO: для этого канала за 24 часа копировальщик просмотрел 1111 сообщений и отложил на проверку 22
 // TODO: фильтры, как исполняемые скрипты на node.js
@@ -510,7 +510,6 @@ func main() {
 			} else if updateDeleteMessages, ok := update.(*client.UpdateDeleteMessages); ok && updateDeleteMessages.IsPermanent {
 				chatId := updateDeleteMessages.ChatId
 				messageIds := updateDeleteMessages.MessageIds
-				// TODO: delete требует ожидания waitForForward и накапливаемого waitForMediaAlbum
 				fn := func() {
 					var result []string
 					log.Printf("updateDeleteMessages go chatId: %d messageIds: %v", chatId, messageIds)
@@ -546,15 +545,16 @@ func main() {
 }
 
 func runReports() {
-	ticker := time.NewTicker(1 * time.Hour)
+	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 	for t := range ticker.C {
 		utc := t.UTC()
 		h := utc.Hour()
-		if h == 0 {
+		m := utc.Minute()
+		if h == 0 && m == 0 {
 			// configData := getConfig()
 			for _, toChatId := range configData.Reports.To {
-				date := time.Now().UTC().Format("2006-01-02")
+				date := utc.Add(-1 * time.Minute).Format("2006-01-02")
 				var viewed, forwarded int64
 				{
 					key := []byte(fmt.Sprintf("%s:%d:%s", viewedMessagesPrefix, toChatId, date))
@@ -589,6 +589,9 @@ func runReports() {
 							Text:                  formattedText,
 							DisableWebPagePreview: true,
 							ClearDraft:            true,
+						},
+						Options: &client.MessageSendOptions{
+							DisableNotification: true,
 						},
 					}); err != nil {
 						log.Print("SendMessage() ", err)
@@ -792,13 +795,34 @@ func getNewMessageId(chatId, tmpMessageId int64) int64 {
 // 	}
 // }
 
+var (
+	lastForwarded   = make(map[int64]time.Time)
+	lastForwardedMu sync.Mutex
+)
+
+func getLastForwardedDiff(chatId int64) time.Duration {
+	lastForwardedMu.Lock()
+	defer lastForwardedMu.Unlock()
+	return time.Since(lastForwarded[chatId])
+}
+
+func setLastForwarded(chatId int64) {
+	lastForwardedMu.Lock()
+	defer lastForwardedMu.Unlock()
+	lastForwarded[chatId] = time.Now()
+}
+
 func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dscChatId int64, forward config.Forward, copiedMessageIds map[string][]string) {
 	log.Printf("forwardNewMessages() srcChatId: %d dscChatId: %d", srcChatId, dscChatId)
 	var messageIds []int64
 	for _, message := range messages {
 		messageIds = append(messageIds, message.Id)
 	}
-	time.Sleep(waitForForward)
+	diff := getLastForwardedDiff(dscChatId)
+	if diff < waitForForward {
+		time.Sleep(waitForForward - diff)
+	}
+	setLastForwarded(dscChatId)
 	forwardedMessages, err := tdlibClient.ForwardMessages(&client.ForwardMessagesRequest{
 		ChatId:     dscChatId,
 		FromChatId: srcChatId,
@@ -1405,4 +1429,4 @@ func distinct(a []string) []string {
 	return result
 }
 
-const waitForForward = 15 * time.Second // чтобы бот успел отреагировать на сообщение
+const waitForForward = 3 * time.Second // чтобы бот успел отреагировать на сообщение
