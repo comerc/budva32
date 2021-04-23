@@ -387,14 +387,8 @@ func main() {
 									Document: &client.InputFileRemote{
 										Id: messageDocument.Document.Document.Remote.Id,
 									},
-									Thumbnail: &client.InputThumbnail{
-										Thumbnail: &client.InputFileRemote{
-											Id: messageDocument.Document.Thumbnail.File.Remote.Id,
-										},
-										Width:  messageDocument.Document.Thumbnail.Width,
-										Height: messageDocument.Document.Thumbnail.Height,
-									},
-									Caption: messageDocument.Caption,
+									Thumbnail: getInputThumbnail(messageDocument.Document.Thumbnail),
+									Caption:   messageDocument.Caption,
 								},
 							})
 							if err != nil {
@@ -411,17 +405,11 @@ func main() {
 									Audio: &client.InputFileRemote{
 										Id: messageAudio.Audio.Audio.Remote.Id,
 									},
-									AlbumCoverThumbnail: &client.InputThumbnail{
-										Thumbnail: &client.InputFileRemote{
-											Id: messageAudio.Audio.AlbumCoverThumbnail.File.Remote.Id,
-										},
-										Width:  messageAudio.Audio.AlbumCoverThumbnail.Width,
-										Height: messageAudio.Audio.AlbumCoverThumbnail.Height,
-									},
-									Title:     messageAudio.Audio.Title,
-									Duration:  messageAudio.Audio.Duration,
-									Performer: messageAudio.Audio.Performer,
-									Caption:   messageAudio.Caption,
+									AlbumCoverThumbnail: getInputThumbnail(messageAudio.Audio.AlbumCoverThumbnail),
+									Title:               messageAudio.Audio.Title,
+									Duration:            messageAudio.Audio.Duration,
+									Performer:           messageAudio.Audio.Performer,
+									Caption:             messageAudio.Caption,
 								},
 							})
 							if err != nil {
@@ -450,13 +438,7 @@ func main() {
 									Video: &client.InputFileRemote{
 										Id: messageVideo.Video.Video.Remote.Id,
 									},
-									Thumbnail: &client.InputThumbnail{
-										Thumbnail: &client.InputFileRemote{
-											Id: messageVideo.Video.Thumbnail.File.Remote.Id,
-										},
-										Width:  messageVideo.Video.Thumbnail.Width,
-										Height: messageVideo.Video.Thumbnail.Height,
-									},
+									Thumbnail: getInputThumbnail(messageVideo.Video.Thumbnail),
 									// TODO: AddedStickerFileIds: ,
 									Duration:          messageVideo.Video.Duration,
 									Width:             messageVideo.Video.Width,
@@ -1464,3 +1446,16 @@ func distinct(a []string) []string {
 }
 
 const waitForForward = 3 * time.Second // чтобы бот успел отреагировать на сообщение
+
+func getInputThumbnail(thumbnail *client.Thumbnail) *client.InputThumbnail {
+	if thumbnail == nil || thumbnail.File == nil && thumbnail.File.Remote == nil {
+		return nil
+	}
+	return &client.InputThumbnail{
+		Thumbnail: &client.InputFileRemote{
+			Id: thumbnail.File.Remote.Id,
+		},
+		Width:  thumbnail.Width,
+		Height: thumbnail.Height,
+	}
+}
