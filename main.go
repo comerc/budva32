@@ -479,20 +479,6 @@ func main() {
 					}
 				}
 				queue.PushBack(fn)
-				// for _, forward := range getConfig().Forwards {
-				// 	src := updateMessageEdited
-				// 	if src.ChatId == forward.From && forward.WithEdited {
-				// 		src, err := tdlibClient.GetMessage(&client.GetMessageRequest{
-				// 			ChatId:    src.ChatId,
-				// 			MessageId: src.MessageId,
-				// 		})
-				// 		if err != nil {
-				// 			log.Print(err)
-				// 			continue
-				// 		}
-				// 		doUpdateMessageEdited(src, forward)
-				// 	}
-				// }
 			} else if updateMessageSendSucceeded, ok := update.(*client.UpdateMessageSendSucceeded); ok {
 				log.Print("updateMessageSendSucceeded go")
 				message := updateMessageSendSucceeded.Message
@@ -732,59 +718,6 @@ func getNewMessageId(chatId, tmpMessageId int64) int64 {
 	return newMessageId
 	// return newMessageIds[ChatMessageId(fmt.Sprintf("%d:%d", chatId, tmpMessageId))]
 }
-
-// func getEditedLabel(isEdited bool) string {
-// 	if isEdited {
-// 		return " EDITED!"
-// 	}
-// 	return ""
-// }
-// formattedText.Text = fmt.Sprintf("%s\n\n#C%dM%d%s",
-// 	formattedText.Text, -src.ChatId, src.Id, getEditedLabel(isEdited))
-
-// func forwardMessageEdited(tdlibClient *client.Client, formattedText *client.FormattedText, srcChatId, srcId, dscChatId int64) {
-// 	dsc, err := tdlibClient.SendMessage(&client.SendMessageRequest{
-// 		ChatId: dscChatId,
-// 		InputMessageContent: &client.InputMessageText{
-// 			Text:                  formattedText,
-// 			DisableWebPagePreview: true,
-// 			ClearDraft:            true,
-// 		},
-// 		ReplyToMessageId: getMessageId(srcChatId, srcId, dscChatId),
-// 	})
-// 	if err != nil {
-// 		log.Print(err)
-// 	} else {
-// 		setMessageId(srcChatId, srcId, dsc.ChatId, dsc.Id)
-// 	}
-// }
-
-// func forwardMessageAlbumEdited(tdlibClient *client.Client, messages []*client.Message, srcChatId, srcId, dscChatId int64) {
-// 	dsc, err := tdlibClient.SendMessageAlbum(&client.SendMessageAlbumRequest{
-// 		InputMessageContents: func() []client.InputMessageContent {
-// 			result := make([]client.InputMessageContent, 0)
-// 			for _, message := range messages {
-// 				src := message
-// 				messageContent := src.Content
-// 				messagePhoto := messageContent.(*client.MessagePhoto)
-// 				result = append(result, &client.InputMessagePhoto{
-// 					Photo: &client.InputFileRemote{
-// 						Id: string(messagePhoto.Photo.Sizes[0].Photo.Id),
-// 					},
-// 					Caption: messagePhoto.Caption,
-// 				})
-// 			}
-// 			return result
-// 		}(),
-// 		ReplyToMessageId: getMessageId(srcChatId, srcId, dscChatId),
-// 	})
-// 	if err != nil {
-// 		log.Print(err)
-// 	} else {
-// 		dsc := dsc.Messages[0]
-// 		setMessageId(srcChatId, srcId, dsc.ChatId, dsc.Id)
-// 	}
-// }
 
 var (
 	lastForwarded   = make(map[int64]time.Time)
@@ -1260,37 +1193,6 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 		}
 	}
 }
-
-// func doUpdateMessageEdited(src *client.Message, forward config.Forward) {
-// 	formattedText := getFormattedText(src.Content)
-// 	log.Printf("updateMessageEdited go ChatId: %d Id: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText != nil && formattedText.Text != "", src.MediaAlbumId)
-// 	isFilters := false
-// 	isOther := false
-// 	var forwardedTo []int64
-// 	if checkFilters(formattedText, forward, &isOther) {
-// 		isFilters = true
-// 		for _, dscChatId := range forward.To {
-// 			if formattedText == nil {
-// 				forwardNewMessages(tdlibClient, []*client.Message{src}, dscChatId, !forward.WoSendCopy)
-// 				// TODO: ещё одно сообщение со ссылкой на исходник редактирования
-// 			} else {
-// 				forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
-// 			}
-// 			forwardedTo = append(forwardedTo, dscChatId)
-// 		}
-// 	} else if isOther && forward.Other != 0 {
-// 		dscChatId := forward.Other
-// 		if formattedText == nil {
-// 			forwardNewMessages(tdlibClient, []*client.Message{src}, dscChatId, !forward.WoSendCopy)
-// 			// TODO: ещё одно сообщение со ссылкой на исходник редактирования
-// 		} else {
-// 			forwardMessageEdited(tdlibClient, formattedText, src.ChatId, src.Id, dscChatId)
-// 		}
-// 		forwardedTo = append(forwardedTo, dscChatId)
-// 	}
-// 	log.Printf("updateMessageEdited ok isFilters: %t isOther: %t forwardedTo: %v", isFilters, isOther, forwardedTo)
-// 	// log.Printf("updateMessageEdited ok forwardedTo: %v", forwardedTo)
-// }
 
 // func getConfig() *config.Config {
 // 	configMu.Lock()
