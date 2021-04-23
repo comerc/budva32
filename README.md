@@ -52,9 +52,6 @@ $ sudo chmod -R 777 ./tdata
 ## config.yml example
 
 ```yml
-Others:
-  -4444:
-    SourceTitle: "*Channel Name*☝️" # for SendCopy (with markdown)
 Reports:
   To: [
       -2222,
@@ -65,11 +62,12 @@ Reports:
 Forwards:
 	- From: -1111
 		To: [-2222]
-		WoSendCopy: true
 	- From: -1234
 		To: [-4321, -8888]
 		Other: -4444
 		# WithEdited: true # deprecated
+		SendCopy: true
+    SourceTitle: "*ChannelName*" # for SendCopy (with markdown)
 		Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
 		Include: '#ARK|#Идеи_покупок|#ОТЧЕТЫ'
 		IncludeSubmatch:
@@ -133,6 +131,29 @@ func getMessageLink(srcChatId, srcMessageId int) {
 	} else {
 		log.Printf("%#v", formattedText)
 	}
+
+// How to add InlineKeyboardButton
+
+	row := make([]*client.InlineKeyboardButton, 0)
+	row = append(row, &client.InlineKeyboardButton{
+		Text: "1234",
+		Type: &client.InlineKeyboardButtonTypeUrl{
+			Url: "https://google.com",
+		},
+	})
+	rows := make([][]*client.InlineKeyboardButton, 0)
+	rows = append(rows, row)
+	_, err := tdlibClient.SendMessage(&client.SendMessageRequest{
+		ChatId: dscChatId,
+		InputMessageContent: &client.InputMessageText{
+			Text:                  formattedText,
+			DisableWebPagePreview: true,
+			ClearDraft:            true,
+		},
+		ReplyMarkup: &client.ReplyMarkupInlineKeyboard{
+			Rows: rows,
+		},
+	})
 
 ```
 
