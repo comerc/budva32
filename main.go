@@ -608,7 +608,7 @@ func convertToInt(s string) int {
 
 // var copiedMessageIds = make(map[ChatMessageId][]ChatMessageId) // [From][]To
 
-const copiedMessageIdsPrefix = "copiedMessageIds"
+const copiedMessageIdsPrefix = "copiedMsgIds"
 
 func deleteCopiedMessageIds(fromChatMessageId string) {
 	key := []byte(fmt.Sprintf("%s:%s", copiedMessageIdsPrefix, fromChatMessageId))
@@ -621,7 +621,7 @@ func deleteCopiedMessageIds(fromChatMessageId string) {
 	log.Printf("deleteCopiedMessageIds() fromChatMessageId: %s", fromChatMessageId)
 }
 
-func setCopiedMessageIds(fromChatMessageId string, toChatMessageIds []string) {
+func setCopiedMessageId(fromChatMessageId string, toChatMessageId string) {
 	key := []byte(fmt.Sprintf("%s:%s", copiedMessageIdsPrefix, fromChatMessageId))
 	var (
 		err error
@@ -645,14 +645,14 @@ func setCopiedMessageIds(fromChatMessageId string, toChatMessageIds []string) {
 			// workaround https://stackoverflow.com/questions/28330908/how-to-string-split-an-empty-string-in-go
 			result = strings.Split(s, ",")
 		}
-		val = []byte(strings.Join(distinct(append(result, toChatMessageIds...)), ","))
+		val = []byte(strings.Join(distinct(append(result, toChatMessageId)), ","))
 		// val = []byte(strings.Join(toChatMessageIds, ","))
 		return txn.Set(key, val)
 	})
 	if err != nil {
-		log.Print("setCopiedMessageIds() ", err)
+		log.Print("setCopiedMessageId() ", err)
 	}
-	log.Printf("setCopiedMessageIds() fromChatMessageId: %s toChatMessageIds: %v val: %s", fromChatMessageId, toChatMessageIds, val)
+	log.Printf("setCopiedMessageId() fromChatMessageId: %s toChatMessageId: %s val: %s", fromChatMessageId, toChatMessageId, val)
 }
 
 func getCopiedMessageIds(fromChatMessageId string) []string {
@@ -690,7 +690,7 @@ func getCopiedMessageIds(fromChatMessageId string) []string {
 
 // var newMessageIds = make(map[ChatMessageId]int64)
 
-const newMessageIdPrefix = "newMessageId"
+const newMessageIdPrefix = "newMsgId"
 
 func setNewMessageId(chatId, tmpMessageId, newMessageId int64) {
 	key := []byte(fmt.Sprintf("%s:%d:%d", newMessageIdPrefix, chatId, tmpMessageId))
@@ -803,7 +803,7 @@ func setLastForwarded(chatId int64) {
 	lastForwarded[chatId] = time.Now()
 }
 
-func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dscChatId int64, forward config.Forward) {
+func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dscChatId int64, woSendCopy bool) {
 	log.Printf("forwardNewMessages() srcChatId: %d dscChatId: %d", srcChatId, dscChatId)
 	var messageIds []int64
 	for _, message := range messages {
@@ -825,7 +825,7 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 				SendDate: int32(time.Now().Unix()),
 			},
 		},
-		SendCopy:      !forward.WoSendCopy,
+		SendCopy:      !woSendCopy,
 		RemoveCaption: false,
 	})
 	if err != nil {
@@ -834,7 +834,7 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 		log.Print("forwardNewMessages(): invalid TotalCount")
 	} else if len(forwardedMessages.Messages) != len(messageIds) {
 		log.Print("forwardNewMessages(): invalid len(messageIds)")
-	} else if !forward.WoSendCopy {
+	} else if !woSendCopy {
 		for i, dsc := range forwardedMessages.Messages {
 			if dsc == nil {
 				log.Printf("!!!! dsc == nil !!!! forwardedMessages: %#v messageIds: %#v", forwardedMessages, messageIds)
@@ -844,16 +844,7 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 			srcId := messageIds[i]
 			toChatMessageId := fmt.Sprintf("%d:%d", dscChatId, dscId)
 			fromChatMessageId := fmt.Sprintf("%d:%d", srcChatId, srcId)
-			// v1
-			// copiedMessageIds[to] = from
-			// v2
-			// setCopiedFromMessageId(fromChatMessageId, toChatMessageId)
-			// v3
-			// a := copiedMessageIds[fromChatMessageId]
-			// a = append(a, toChatMessageId)
-			// copiedMessageIds[fromChatMessageId] = a
-			// v4
-			setCopiedMessageIds(fromChatMessageId, []string{toChatMessageId})
+			setCopiedMessageId(fromChatMessageId, toChatMessageId)
 		}
 	}
 }
@@ -1182,13 +1173,12 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 	defer func() {
 		log.Printf("updateNewMessage ok ChatId: %d Id: %d isFilters: %t isOther: %t result: %v", src.ChatId, src.Id, isFilters, isOther, result)
 	}()
-	// copiedMessageIds := make(map[string][]string) // [From][]To
 	if checkFilters(formattedText, forward, &isOther) {
 		isFilters = true
 		otherFns[forward.Other] = nil
 		for _, dscChatId := range forward.To {
 			if isNotForwardedTo(forwardedTo, dscChatId) {
-				forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward)
+				forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward.WoSendCopy)
 				result = append(result, dscChatId)
 			}
 		}
@@ -1197,7 +1187,7 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 		if !ok {
 			otherFns[forward.Other] = func() {
 				dscChatId := forward.Other
-				forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward)
+				forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward.WoSendCopy)
 				other := configData.Others[forward.Other]
 				if !forward.WoSendCopy && other.SourceTitle != "" {
 					messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
@@ -1269,10 +1259,6 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 			}
 		}
 	}
-	// for fromChatMessageId, toChatMessageIds := range copiedMessageIds {
-	// 	a := getCopiedMessageIds(fromChatMessageId)
-	// 	setCopiedMessageIds(fromChatMessageId, distinct(append(a, toChatMessageIds...)))
-	// }
 }
 
 // func doUpdateMessageEdited(src *client.Message, forward config.Forward) {
