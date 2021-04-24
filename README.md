@@ -52,13 +52,17 @@ $ sudo chmod -R 777 ./tdata
 ## config.yml example
 
 ```yml
+SourceLinks:
+  -1234:
+		Title: "*ChannelName*" # for SendCopy (with markdown)
+    For: [-4321]
 Reports:
-  To: [
+  Template: "За *24 часа* отобрал: *%d* из *%d* 😎\n#ForwarderStats" # (with markdown)
+  For: [
       -2222,
       -4321,
       -8888,
     ]
-  Template: "За *24 часа* отобрал: *%d* из *%d* 😎" # (with markdown)
 Forwards:
 	- From: -1111
 		To: [-2222]
@@ -67,7 +71,6 @@ Forwards:
 		Other: -4444
 		# WithEdited: true # deprecated
 		SendCopy: true
-    SourceTitle: "*ChannelName*" # for SendCopy (with markdown)
 		Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
 		Include: '#ARK|#Идеи_покупок|#ОТЧЕТЫ'
 		IncludeSubmatch:

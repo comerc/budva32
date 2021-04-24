@@ -25,11 +25,12 @@ import (
 
 	"github.com/comerc/budva32/config"
 	"github.com/dgraph-io/badger"
-	"github.com/enescakir/emoji"
 	"github.com/joho/godotenv"
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// Добавил ссылки на исходные сообщения в подвале 😎
+// TODO: ссылка на оригинал для пересланных в copy_to_teslaholics сообщий
 // TODO: edit & delete требуют ожидания waitForForward и накапливаемого waitForMediaAlbum (или забить?)
 // TODO: подменять ссылки внутри сообщений на целевую группу / канал
 // TODO: падает при удалении целевого чата?
@@ -322,12 +323,18 @@ func main() {
 						log.Print("GetMessage() src ", err)
 						return
 					}
-					formattedText, contentMode := getFormattedText(src.Content)
-					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText != nil && formattedText.Text != "", src.MediaAlbumId)
+					srcFormattedText, contentMode := getFormattedText(src.Content)
+					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, srcFormattedText != nil && srcFormattedText.Text != "", src.MediaAlbumId)
 					for _, toChatMessageId := range toChatMessageIds {
 						a := strings.Split(string(toChatMessageId), ":")
 						dscChatId := int64(convertToInt(a[0]))
 						dscId := int64(convertToInt(a[1]))
+						formattedText := srcFormattedText
+						if sourceLink, ok := configData.SourceLinks[src.ChatId]; ok {
+							if containsInt64(sourceLink.For, dscChatId) {
+								formattedText = addSourceLink(src, srcFormattedText, sourceLink.Title)
+							}
+						}
 						newMessageId := getNewMessageId(dscChatId, dscId)
 						result = append(result, fmt.Sprintf("toChatMessageId: %s, newMessageId: %d", toChatMessageId, newMessageId))
 						log.Print("contentMode: ", contentMode)
@@ -419,11 +426,15 @@ func runReports() {
 	defer ticker.Stop()
 	for t := range ticker.C {
 		utc := t.UTC()
+		w := utc.Weekday()
+		if w == 6 || w == 0 {
+			continue
+		}
 		h := utc.Hour()
 		m := utc.Minute()
 		if h == 0 && m == 0 {
 			// configData := getConfig()
-			for _, toChatId := range configData.Reports.To {
+			for _, toChatId := range configData.Reports.For {
 				date := utc.Add(-1 * time.Minute).Format("2006-01-02")
 				var viewed, forwarded int64
 				{
@@ -445,7 +456,7 @@ func runReports() {
 					}
 				}
 				formattedText, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
-					Text: fmt.Sprintf(escape(configData.Reports.Template), forwarded, viewed),
+					Text: fmt.Sprintf(configData.Reports.Template, forwarded, viewed),
 					ParseMode: &client.TextParseModeMarkdown{
 						Version: 2,
 					},
@@ -751,6 +762,15 @@ func contains(a []string, s string) bool {
 	return false
 }
 
+func containsInt64(a []int64, e int64) bool {
+	for _, t := range a {
+		if t == e {
+			return true
+		}
+	}
+	return false
+}
+
 func checkFilters(formattedText *client.FormattedText, forward config.Forward, isOther *bool) bool {
 	*isOther = false
 	if formattedText == nil {
@@ -1043,11 +1063,6 @@ func handlePanic() {
 	}
 }
 
-func escape(s string) string {
-	re := regexp.MustCompile(`[.|\-|\_|(|)|#|!]`)
-	return re.ReplaceAllString(s, `\$0`)
-}
-
 const viewedMessagesPrefix = "viewedMsgs"
 
 func incrementViewedMessages(toChatId int64) {
@@ -1183,7 +1198,7 @@ func getInputThumbnail(thumbnail *client.Thumbnail) *client.InputThumbnail {
 	}
 }
 
-func addSourceLink(message *client.Message, formattedText *client.FormattedText, sourceTitle string) *client.FormattedText {
+func addSourceLink(message *client.Message, formattedText *client.FormattedText, title string) *client.FormattedText {
 	result := formattedText
 	messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
 		ChatId:     message.ChatId,
@@ -1196,12 +1211,11 @@ func addSourceLink(message *client.Message, formattedText *client.FormattedText,
 	} else {
 		offset := int32(len(utf16.Encode([]rune(formattedText.Text))))
 		if offset > 0 {
-			formattedText.Text += "\n"
-			offset++
+			formattedText.Text += "\n\n"
+			offset = offset + 2
 		}
-		// TODO: неправильно эскейпится __underline__
 		sourceLink, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
-			Text: fmt.Sprintf("[%s%s](%s)", emoji.Link, escape(sourceTitle), messageLink.Link),
+			Text: fmt.Sprintf("[%s%s](%s)", "\U0001f517", title, messageLink.Link),
 			ParseMode: &client.TextParseModeMarkdown{
 				Version: 2,
 			},
@@ -1214,7 +1228,7 @@ func addSourceLink(message *client.Message, formattedText *client.FormattedText,
 			}
 			formattedText.Text += sourceLink.Text
 			formattedText.Entities = append(formattedText.Entities, sourceLink.Entities...)
-			*result = *formattedText
+			result = formattedText
 		}
 	}
 	log.Print("addSourceLink() ", result)
@@ -1321,7 +1335,11 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 	for i, message := range messages {
 		formattedText, contentMode := getFormattedText(message.Content)
 		if i == 0 {
-			formattedText = addSourceLink(message, formattedText, forward.SourceTitle)
+			if sourceLink, ok := configData.SourceLinks[srcChatId]; ok {
+				if containsInt64(sourceLink.For, dscChatId) {
+					formattedText = addSourceLink(message, formattedText, sourceLink.Title)
+				}
+			}
 		}
 		content := getInputMessageContent(message.Content, formattedText, contentMode)
 		if content != nil {
