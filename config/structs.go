@@ -26,6 +26,7 @@ type Forward struct {
 	Include         string
 	IncludeSubmatch []IncludeSubmatch
 	SendCopy        bool
+	Force           bool
 	// TODO: WithEdited bool
 }
 

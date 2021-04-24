@@ -29,8 +29,6 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// Добавил ссылки на исходные сообщения в подвале 😎
-// TODO: ссылка на оригинал для пересланных в copy_to_teslaholics сообщий
 // TODO: edit & delete требуют ожидания waitForForward и накапливаемого waitForMediaAlbum (или забить?)
 // TODO: подменять ссылки внутри сообщений на целевую группу / канал
 // TODO: падает при удалении целевого чата?
@@ -234,6 +232,22 @@ func main() {
 		if update.GetClass() == client.ClassUpdate {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
 				src := updateNewMessage.Message
+				isForce := false
+				for _, forward := range configData.Forwards {
+					if src.ChatId == forward.From && forward.Force {
+						isForce = true
+						break
+					}
+				}
+				if src.ForwardInfo != nil {
+					origin := src.ForwardInfo.Origin.(*client.MessageForwardOriginChannel)
+					if message, err := getOriginMessage(origin.ChatId, origin.MessageId); err != nil {
+						log.Print("getOriginMessage() ", err)
+						continue
+					} else {
+						src = message
+					}
+				}
 				isExist := false
 				otherFns := make(map[int64]func())
 				forwardedTo := make(map[int64]bool)
@@ -257,7 +271,7 @@ func main() {
 									wg.Done()
 									log.Print("wg.Done() for src.Id: ", src.Id)
 								}()
-								doUpdateNewMessage([]*client.Message{src}, forward, forwardedTo, otherFns)
+								doUpdateNewMessage([]*client.Message{src}, isForce, forward, forwardedTo, otherFns)
 							}
 							queue.PushBack(fn)
 						} else {
@@ -273,7 +287,7 @@ func main() {
 												wg.Done()
 												log.Print("wg.Done() for src.Id: ", src.Id)
 											}()
-											doUpdateNewMessage(messages, forward, forwardedTo, otherFns)
+											doUpdateNewMessage(messages, isForce, forward, forwardedTo, otherFns)
 										}
 										queue.PushBack(fn)
 									})
@@ -1016,7 +1030,7 @@ func handleMediaAlbum(i int, id client.JsonInt64, cb func(messages []*client.Mes
 	cb(messages)
 }
 
-func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forwardedTo map[int64]bool, otherFns map[int64]func()) {
+func doUpdateNewMessage(messages []*client.Message, isForce bool, forward config.Forward, forwardedTo map[int64]bool, otherFns map[int64]func()) {
 	src := messages[0]
 	formattedText, _ := getFormattedText(src.Content)
 	log.Printf("updateNewMessage go ChatId: %d Id: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText != nil && formattedText.Text != "", src.MediaAlbumId)
@@ -1029,7 +1043,7 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 	defer func() {
 		log.Printf("updateNewMessage ok ChatId: %d Id: %d isFilters: %t isOther: %t result: %v", src.ChatId, src.Id, isFilters, isOther, result)
 	}()
-	if checkFilters(formattedText, forward, &isOther) {
+	if isForce || checkFilters(formattedText, forward, &isOther) {
 		isFilters = true
 		otherFns[forward.Other] = nil
 		for _, dscChatId := range forward.To {
@@ -1364,4 +1378,18 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 			InputMessageContents: contents,
 		})
 	}
+}
+
+func getOriginMessage(chatId, messageId int64) (*client.Message, error) {
+	src, err := tdlibClient.GetMessage(&client.GetMessageRequest{
+		ChatId:    chatId,
+		MessageId: messageId,
+	})
+	if err != nil {
+		return src, err
+	}
+	if src.ForwardInfo != nil {
+		src, err = getOriginMessage(chatId, messageId)
+	}
+	return src, err
 }

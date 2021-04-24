@@ -66,6 +66,7 @@ Reports:
 Forwards:
 	- From: -1111
 		To: [-2222]
+		Force: true # игнорировать фильтры (применимо для origin)
 	- From: -1234
 		To: [-4321, -8888]
 		Other: -4444
