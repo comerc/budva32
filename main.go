@@ -1358,7 +1358,7 @@ func checkMarkdown(tdlibClient *client.Client, formattedText *client.FormattedTe
 		log.Print("GetMarkdownText() ", err)
 		return false
 	} else if _, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
-		Text: formattedText.Text,
+		Text: formattedText.Text + "\n\n[dummy](https://LongLongLongLongLongLongLongLongLongLongLongSourceLink.com)",
 		ParseMode: &client.TextParseModeMarkdown{
 			Version: 2,
 		},
