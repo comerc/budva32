@@ -323,11 +323,6 @@ func main() {
 						return
 					}
 					srcFormattedText, contentMode := getFormattedText(src.Content)
-					isResetMarkdown := false
-					// if !checkMarkdown(tdlibClient, srcFormattedText) {
-					// 	isResetMarkdown = true
-					// 	srcFormattedText.Entities = make([]*client.TextEntity, 0)
-					// }
 					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, srcFormattedText != nil && srcFormattedText.Text != "", src.MediaAlbumId)
 					for _, toChatMessageId := range toChatMessageIds {
 						a := strings.Split(string(toChatMessageId), ":")
@@ -344,7 +339,7 @@ func main() {
 						log.Print("contentMode: ", contentMode)
 						switch contentMode {
 						case ContentModeText:
-							content := getInputMessageContent(src.Content, formattedText, contentMode, isResetMarkdown)
+							content := getInputMessageContent(src.Content, formattedText, contentMode)
 							dsc, err := tdlibClient.EditMessageText(&client.EditMessageTextRequest{
 								ChatId:              dscChatId,
 								MessageId:           newMessageId,
@@ -359,7 +354,7 @@ func main() {
 						case ContentModeAudio:
 						case ContentModeVideo:
 						case ContentModePhoto:
-							content := getInputMessageContent(src.Content, formattedText, contentMode, isResetMarkdown)
+							content := getInputMessageContent(src.Content, formattedText, contentMode)
 							dsc, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
 								ChatId:              dscChatId,
 								MessageId:           newMessageId,
@@ -1239,13 +1234,13 @@ func addSourceLink(message *client.Message, formattedText *client.FormattedText,
 	return result
 }
 
-func getInputMessageContent(messageContent client.MessageContent, formattedText *client.FormattedText, contentMode ContentMode, isResetMarkdown bool) client.InputMessageContent {
+func getInputMessageContent(messageContent client.MessageContent, formattedText *client.FormattedText, contentMode ContentMode) client.InputMessageContent {
 	switch contentMode {
 	case ContentModeText:
 		messageText := messageContent.(*client.MessageText)
 		return &client.InputMessageText{
 			Text:                  formattedText,
-			DisableWebPagePreview: isResetMarkdown || messageText.WebPage == nil || messageText.WebPage.Url == "",
+			DisableWebPagePreview: messageText.WebPage == nil || messageText.WebPage.Url == "",
 			ClearDraft:            true,
 		}
 	case ContentModeAnimation:
@@ -1334,25 +1329,6 @@ func getInputMessageContent(messageContent client.MessageContent, formattedText 
 	return nil
 }
 
-// workaround for long messages with markdown
-// func checkMarkdown(tdlibClient *client.Client, formattedText *client.FormattedText) bool {
-// 	if formattedText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{
-// 		Text: formattedText,
-// 	}); err != nil {
-// 		log.Print("GetMarkdownText() ", err)
-// 		return false
-// 	} else if _, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
-// 		Text: formattedText.Text + "\n\n[dummy](https://LongLongLongLongLongLongLongLongLongLongLongSourceLink.com)",
-// 		ParseMode: &client.TextParseModeMarkdown{
-// 			Version: 2,
-// 		},
-// 	}); err != nil {
-// 		log.Print("ParseTextEntities() ", err)
-// 		return false
-// 	}
-// 	return true
-// }
-
 func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dscChatId int64, forward config.Forward) (*client.Messages, error) {
 	contents := make([]client.InputMessageContent, 0)
 	for i, message := range messages {
@@ -1367,11 +1343,6 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 			}
 		}
 		formattedText, contentMode := getFormattedText(message.Content)
-		isResetMarkdown := false
-		// if !checkMarkdown(tdlibClient, formattedText) {
-		// 	isResetMarkdown = true
-		// 	formattedText.Entities = make([]*client.TextEntity, 0)
-		// }
 		if i == 0 {
 			if sourceLink, ok := configData.SourceLinks[srcChatId]; ok {
 				if containsInt64(sourceLink.For, dscChatId) {
@@ -1379,7 +1350,7 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 				}
 			}
 		}
-		content := getInputMessageContent(message.Content, formattedText, contentMode, isResetMarkdown)
+		content := getInputMessageContent(message.Content, formattedText, contentMode)
 		if content != nil {
 			contents = append(contents, content)
 		}
