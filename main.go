@@ -29,6 +29,7 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: ОГРОМНОЕ ТОРНАДО ПРОШЛО В ВЕРНОНЕ - похерился американский флаг при копировании на мобильной версии
 // TODO: как бороться с зацикливанием пересылки
 // TODO: подменять ссылки внутри сообщений на целевую группу / канал
 // TODO: падает при удалении целевого чата?
@@ -232,23 +233,16 @@ func main() {
 		if update.GetClass() == client.ClassUpdate {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
 				src := updateNewMessage.Message
-				isForce := false
-				for _, forward := range configData.Forwards {
-					if src.ChatId == forward.From && forward.Force {
-						isForce = true
-						break
-					}
-				}
-				if src.ForwardInfo != nil {
-					if origin, ok := src.ForwardInfo.Origin.(*client.MessageForwardOriginChannel); ok {
-						if message, err := getOriginMessage(origin.ChatId, origin.MessageId); err != nil {
-							log.Print("getOriginMessage() ", err)
-							continue
-						} else {
-							src = message
-						}
-					}
-				}
+				// if src.ForwardInfo != nil {
+				// 	if origin, ok := src.ForwardInfo.Origin.(*client.MessageForwardOriginChannel); ok {
+				// 		if message, err := getOriginMessage(origin.ChatId, origin.MessageId); err != nil {
+				// 			log.Print("getOriginMessage() ", err)
+				// 			continue
+				// 		} else {
+				// 			src = message
+				// 		}
+				// 	}
+				// }
 				isExist := false
 				otherFns := make(map[int64]func())
 				forwardedTo := make(map[int64]bool)
@@ -272,7 +266,7 @@ func main() {
 									wg.Done()
 									log.Print("wg.Done() for src.Id: ", src.Id)
 								}()
-								doUpdateNewMessage([]*client.Message{src}, isForce, forward, forwardedTo, otherFns)
+								doUpdateNewMessage([]*client.Message{src}, forward, forwardedTo, otherFns)
 							}
 							queue.PushBack(fn)
 						} else {
@@ -288,7 +282,7 @@ func main() {
 												wg.Done()
 												log.Print("wg.Done() for src.Id: ", src.Id)
 											}()
-											doUpdateNewMessage(messages, isForce, forward, forwardedTo, otherFns)
+											doUpdateNewMessage(messages, forward, forwardedTo, otherFns)
 										}
 										queue.PushBack(fn)
 									})
@@ -340,10 +334,10 @@ func main() {
 					}
 					srcFormattedText, contentMode := getFormattedText(src.Content)
 					isResetMarkdown := false
-					if !checkMarkdown(tdlibClient, srcFormattedText) {
-						isResetMarkdown = true
-						srcFormattedText.Entities = make([]*client.TextEntity, 0)
-					}
+					// if !checkMarkdown(tdlibClient, srcFormattedText) {
+					// 	isResetMarkdown = true
+					// 	srcFormattedText.Entities = make([]*client.TextEntity, 0)
+					// }
 					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, srcFormattedText != nil && srcFormattedText.Text != "", src.MediaAlbumId)
 					for _, toChatMessageId := range toChatMessageIds {
 						a := strings.Split(string(toChatMessageId), ":")
@@ -704,13 +698,13 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 	} else if forward.SendCopy {
 		for i, dsc := range result.Messages {
 			if dsc == nil {
-				log.Printf("!!!! dsc == nil !!!! result: %#v messages: %#v", result, messages)
+				log.Printf("!!! dsc == nil !!! result: %#v messages: %#v", result, messages)
 				continue
 			}
 			dscId := dsc.Id
-			srcId := messages[i].Id
+			src := messages[i] // !!! origin messages
 			toChatMessageId := fmt.Sprintf("%d:%d", dscChatId, dscId)
-			fromChatMessageId := fmt.Sprintf("%d:%d", srcChatId, srcId)
+			fromChatMessageId := fmt.Sprintf("%d:%d", src.ChatId, src.Id)
 			setCopiedMessageId(fromChatMessageId, toChatMessageId)
 		}
 	}
@@ -1036,7 +1030,7 @@ func handleMediaAlbum(i int, id client.JsonInt64, cb func(messages []*client.Mes
 	cb(messages)
 }
 
-func doUpdateNewMessage(messages []*client.Message, isForce bool, forward config.Forward, forwardedTo map[int64]bool, otherFns map[int64]func()) {
+func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forwardedTo map[int64]bool, otherFns map[int64]func()) {
 	src := messages[0]
 	formattedText, _ := getFormattedText(src.Content)
 	log.Printf("updateNewMessage go ChatId: %d Id: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText != nil && formattedText.Text != "", src.MediaAlbumId)
@@ -1049,7 +1043,7 @@ func doUpdateNewMessage(messages []*client.Message, isForce bool, forward config
 	defer func() {
 		log.Printf("updateNewMessage ok ChatId: %d Id: %d isFilters: %t isOther: %t result: %v", src.ChatId, src.Id, isFilters, isOther, result)
 	}()
-	if isForce || checkFilters(formattedText, forward, &isOther) {
+	if checkFilters(formattedText, forward, &isOther) {
 		isFilters = true
 		otherFns[forward.Other] = nil
 		for _, dscChatId := range forward.To {
@@ -1351,33 +1345,43 @@ func getInputMessageContent(messageContent client.MessageContent, formattedText 
 }
 
 // workaround for long messages with markdown
-func checkMarkdown(tdlibClient *client.Client, formattedText *client.FormattedText) bool {
-	if formattedText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{
-		Text: formattedText,
-	}); err != nil {
-		log.Print("GetMarkdownText() ", err)
-		return false
-	} else if _, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
-		Text: formattedText.Text + "\n\n[dummy](https://LongLongLongLongLongLongLongLongLongLongLongSourceLink.com)",
-		ParseMode: &client.TextParseModeMarkdown{
-			Version: 2,
-		},
-	}); err != nil {
-		log.Print("ParseTextEntities() ", err)
-		return false
-	}
-	return true
-}
+// func checkMarkdown(tdlibClient *client.Client, formattedText *client.FormattedText) bool {
+// 	if formattedText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{
+// 		Text: formattedText,
+// 	}); err != nil {
+// 		log.Print("GetMarkdownText() ", err)
+// 		return false
+// 	} else if _, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
+// 		Text: formattedText.Text + "\n\n[dummy](https://LongLongLongLongLongLongLongLongLongLongLongSourceLink.com)",
+// 		ParseMode: &client.TextParseModeMarkdown{
+// 			Version: 2,
+// 		},
+// 	}); err != nil {
+// 		log.Print("ParseTextEntities() ", err)
+// 		return false
+// 	}
+// 	return true
+// }
 
 func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dscChatId int64, forward config.Forward) (*client.Messages, error) {
 	contents := make([]client.InputMessageContent, 0)
 	for i, message := range messages {
+		if message.ForwardInfo != nil {
+			if origin, ok := message.ForwardInfo.Origin.(*client.MessageForwardOriginChannel); ok {
+				if originMessage, err := getOriginMessage(origin.ChatId, origin.MessageId); err != nil {
+					log.Print("getOriginMessage() ", err)
+				} else {
+					message = originMessage
+					messages[i] = message
+				}
+			}
+		}
 		formattedText, contentMode := getFormattedText(message.Content)
 		isResetMarkdown := false
-		if !checkMarkdown(tdlibClient, formattedText) {
-			isResetMarkdown = true
-			formattedText.Entities = make([]*client.TextEntity, 0)
-		}
+		// if !checkMarkdown(tdlibClient, formattedText) {
+		// 	isResetMarkdown = true
+		// 	formattedText.Entities = make([]*client.TextEntity, 0)
+		// }
 		if i == 0 {
 			if sourceLink, ok := configData.SourceLinks[srcChatId]; ok {
 				if containsInt64(sourceLink.For, dscChatId) {
