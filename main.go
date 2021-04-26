@@ -233,16 +233,6 @@ func main() {
 		if update.GetClass() == client.ClassUpdate {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
 				src := updateNewMessage.Message
-				// if src.ForwardInfo != nil {
-				// 	if origin, ok := src.ForwardInfo.Origin.(*client.MessageForwardOriginChannel); ok {
-				// 		if message, err := getOriginMessage(origin.ChatId, origin.MessageId); err != nil {
-				// 			log.Print("getOriginMessage() ", err)
-				// 			continue
-				// 		} else {
-				// 			src = message
-				// 		}
-				// 	}
-				// }
 				isExist := false
 				otherFns := make(map[int64]func())
 				forwardedTo := make(map[int64]bool)
@@ -1422,6 +1412,9 @@ func getOriginMessage(chatId, messageId int64) (*client.Message, error) {
 	if err != nil {
 		return src, err
 	}
+	// рекурсия лишняя,
+	// т.к. телега не пересылае пересланное сообщение, а сама подменяет на оригинальное;
+	// но где гарантия, что кастомные клиенты работают так же? :)
 	if src.ForwardInfo != nil {
 		src, err = getOriginMessage(chatId, messageId)
 	}
