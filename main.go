@@ -29,9 +29,9 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: https://telegram.org/blog/payments-2-0-scheduled-voice-chats/ru
 // TODO: ОГРОМНОЕ ТОРНАДО ПРОШЛО В ВЕРНОНЕ - похерился американский флаг при копировании на мобильной версии
 // TODO: как бороться с зацикливанием пересылки
-// TODO: подменять ссылки внутри сообщений на целевую группу / канал
 // TODO: падает при удалении целевого чата?
 // TODO: edit & delete требуют ожидания waitForForward и накапливаемого waitForMediaAlbum (или забить?)
 // TODO: фильтры, как исполняемые скрипты на node.js
@@ -250,7 +250,7 @@ func main() {
 						if src.MediaAlbumId == 0 {
 							wg.Add(1)
 							log.Print("wg.Add(1) for src.Id: ", src.Id)
-							forward := forward // !!! copy for go routine
+							forward := forward // !!!! copy for go routine
 							fn := func() {
 								defer func() {
 									wg.Done()
@@ -264,7 +264,7 @@ func main() {
 							if isFirstMessage {
 								wg.Add(1)
 								log.Print("wg.Add(1) for src.Id: ", src.Id)
-								forward := forward // !!! copy for go routine
+								forward := forward // !!!! copy for go routine
 								go handleMediaAlbum(i, src.MediaAlbumId,
 									func(messages []*client.Message) {
 										fn := func() {
@@ -328,10 +328,16 @@ func main() {
 						a := strings.Split(string(toChatMessageId), ":")
 						dscChatId := int64(convertToInt(a[0]))
 						dscId := int64(convertToInt(a[1]))
-						formattedText := srcFormattedText
-						if sourceLink, ok := configData.SourceLinks[src.ChatId]; ok {
-							if containsInt64(sourceLink.For, dscChatId) {
-								formattedText = addSourceLink(src, srcFormattedText, sourceLink.Title)
+						formattedText := copyFormattedText(srcFormattedText)
+						if replaceMyselfLink, ok := configData.ReplaceMyselfLinks[dscChatId]; ok {
+							replaceMyselfLinks(formattedText, src.ChatId, dscChatId, replaceMyselfLink.DeleteExternal)
+						}
+						if source, ok := configData.Sources[src.ChatId]; ok {
+							if containsInt64(source.Sign.For, dscChatId) {
+								addSourceSign(formattedText, source.Sign.Title)
+							}
+							if containsInt64(source.Link.For, dscChatId) {
+								addSourceLink(src, formattedText, source.Link.Title)
 							}
 						}
 						newMessageId := getNewMessageId(dscChatId, dscId)
@@ -615,6 +621,7 @@ func getNewMessageId(chatId, tmpMessageId int64) int64 {
 	})
 	if err != nil {
 		log.Print("getNewMessageId() ", err)
+		return 0
 	}
 	newMessageId := int64(convertToInt(fmt.Sprintf("%s", val)))
 	log.Printf("getNewMessageId() key: %d:%d val: %d", chatId, tmpMessageId, newMessageId)
@@ -683,11 +690,11 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 	} else if forward.SendCopy {
 		for i, dsc := range result.Messages {
 			if dsc == nil {
-				log.Printf("!!! dsc == nil !!! result: %#v messages: %#v", result, messages)
+				log.Printf("!!!! dsc == nil !!!! result: %#v messages: %#v", result, messages)
 				continue
 			}
 			dscId := dsc.Id
-			src := messages[i] // !!! origin messages
+			src := messages[i] // !!!! origin messages
 			toChatMessageId := fmt.Sprintf("%d:%d", dscChatId, dscId)
 			fromChatMessageId := fmt.Sprintf("%d:%d", src.ChatId, src.Id)
 			setCopiedMessageId(fromChatMessageId, toChatMessageId)
@@ -746,7 +753,7 @@ func getFormattedText(messageContent client.MessageContent) (*client.FormattedTe
 		// client.MessageGame
 		// client.MessagePoll
 		// client.MessageInvoice
-		formattedText = nil
+		formattedText = &client.FormattedText{}
 		contentMode = ""
 	}
 	return formattedText, contentMode
@@ -772,7 +779,7 @@ func containsInt64(a []int64, e int64) bool {
 
 func checkFilters(formattedText *client.FormattedText, forward config.Forward, isOther *bool) bool {
 	*isOther = false
-	if formattedText == nil {
+	if formattedText.Text == "" {
 		hasInclude := false
 		if forward.Include != "" {
 			hasInclude = true
@@ -1017,8 +1024,8 @@ func handleMediaAlbum(i int, id client.JsonInt64, cb func(messages []*client.Mes
 
 func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forwardedTo map[int64]bool, otherFns map[int64]func()) {
 	src := messages[0]
-	formattedText, _ := getFormattedText(src.Content)
-	log.Printf("updateNewMessage go ChatId: %d Id: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText != nil && formattedText.Text != "", src.MediaAlbumId)
+	formattedText, contentMode := getFormattedText(src.Content)
+	log.Printf("updateNewMessage go ChatId: %d Id: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText.Text != "", src.MediaAlbumId)
 	// for log
 	var (
 		isFilters = false
@@ -1028,6 +1035,10 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 	defer func() {
 		log.Printf("updateNewMessage ok ChatId: %d Id: %d isFilters: %t isOther: %t result: %v", src.ChatId, src.Id, isFilters, isOther, result)
 	}()
+	if contentMode == "" {
+		log.Print("contentMode == \"\"")
+		return
+	}
 	if checkFilters(formattedText, forward, &isOther) {
 		isFilters = true
 		otherFns[forward.Other] = nil
@@ -1197,8 +1208,31 @@ func getInputThumbnail(thumbnail *client.Thumbnail) *client.InputThumbnail {
 	}
 }
 
-func addSourceLink(message *client.Message, formattedText *client.FormattedText, title string) *client.FormattedText {
-	result := formattedText
+func addSourceSign(formattedText *client.FormattedText, title string) {
+	sourceSign, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
+		Text: title,
+		ParseMode: &client.TextParseModeMarkdown{
+			Version: 2,
+		},
+	})
+	if err != nil {
+		log.Print("ParseTextEntities() ", err)
+	} else {
+		offset := int32(len(utf16.Encode([]rune(formattedText.Text))))
+		if offset > 0 {
+			formattedText.Text += "\n\n"
+			offset = offset + 2
+		}
+		for _, entity := range sourceSign.Entities {
+			entity.Offset += offset
+		}
+		formattedText.Text += sourceSign.Text
+		formattedText.Entities = append(formattedText.Entities, sourceSign.Entities...)
+	}
+	log.Printf("addSourceSign() %#v", formattedText)
+}
+
+func addSourceLink(message *client.Message, formattedText *client.FormattedText, title string) {
 	messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
 		ChatId:     message.ChatId,
 		MessageId:  message.Id,
@@ -1208,11 +1242,6 @@ func addSourceLink(message *client.Message, formattedText *client.FormattedText,
 	if err != nil {
 		log.Print("GetMessageLink() ", err)
 	} else {
-		offset := int32(len(utf16.Encode([]rune(formattedText.Text))))
-		if offset > 0 {
-			formattedText.Text += "\n\n"
-			offset = offset + 2
-		}
 		sourceLink, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
 			Text: fmt.Sprintf("[%s%s](%s)", "\U0001f517", title, messageLink.Link),
 			ParseMode: &client.TextParseModeMarkdown{
@@ -1222,16 +1251,20 @@ func addSourceLink(message *client.Message, formattedText *client.FormattedText,
 		if err != nil {
 			log.Print("ParseTextEntities() ", err)
 		} else {
+			// TODO: тут упало на опросе https://t.me/Full_Time_Trading/40922
+			offset := int32(len(utf16.Encode([]rune(formattedText.Text))))
+			if offset > 0 {
+				formattedText.Text += "\n\n"
+				offset = offset + 2
+			}
 			for _, entity := range sourceLink.Entities {
 				entity.Offset += offset
 			}
 			formattedText.Text += sourceLink.Text
 			formattedText.Entities = append(formattedText.Entities, sourceLink.Entities...)
-			result = formattedText
 		}
 	}
-	log.Printf("addSourceLink() %#v", result)
-	return result
+	log.Printf("addSourceLink() %#v", formattedText)
 }
 
 func getInputMessageContent(messageContent client.MessageContent, formattedText *client.FormattedText, contentMode ContentMode) client.InputMessageContent {
@@ -1337,20 +1370,27 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 				if originMessage, err := getOriginMessage(origin.ChatId, origin.MessageId); err != nil {
 					log.Print("getOriginMessage() ", err)
 				} else {
-					message = originMessage
-					messages[i] = message
+					*message = *originMessage
 				}
 			}
 		}
-		formattedText, contentMode := getFormattedText(message.Content)
+		src := messages[i] // !!!! for origin message
+		formattedText, contentMode := getFormattedText(src.Content)
+		formattedText = copyFormattedText(formattedText)
+		if replaceMyselfLink, ok := configData.ReplaceMyselfLinks[dscChatId]; ok {
+			replaceMyselfLinks(formattedText, src.ChatId, dscChatId, replaceMyselfLink.DeleteExternal)
+		}
 		if i == 0 {
-			if sourceLink, ok := configData.SourceLinks[srcChatId]; ok {
-				if containsInt64(sourceLink.For, dscChatId) {
-					formattedText = addSourceLink(message, formattedText, sourceLink.Title)
+			if source, ok := configData.Sources[src.ChatId]; ok {
+				if containsInt64(source.Sign.For, dscChatId) {
+					addSourceSign(formattedText, source.Sign.Title)
+				}
+				if containsInt64(source.Link.For, dscChatId) {
+					addSourceLink(src, formattedText, source.Link.Title)
 				}
 			}
 		}
-		content := getInputMessageContent(message.Content, formattedText, contentMode)
+		content := getInputMessageContent(src.Content, formattedText, contentMode)
 		if content != nil {
 			contents = append(contents, content)
 		}
@@ -1390,4 +1430,54 @@ func getOriginMessage(chatId, messageId int64) (*client.Message, error) {
 		src, err = getOriginMessage(chatId, messageId)
 	}
 	return src, err
+}
+
+func replaceMyselfLinks(formattedText *client.FormattedText, srcChatId, dscChatId int64, withDeleteExternal bool) {
+	log.Printf("replaceMyselfLinks() srcChatId: %d dscChatId: %d", srcChatId, dscChatId)
+	for _, entity := range formattedText.Entities {
+		if textUrl, ok := entity.Type.(*client.TextEntityTypeTextUrl); ok {
+			if messageLinkInfo, err := tdlibClient.GetMessageLinkInfo(&client.GetMessageLinkInfoRequest{
+				Url: textUrl.Url,
+			}); err != nil {
+				log.Print("GetMessageLinkInfo() ", err)
+			} else {
+				src := messageLinkInfo.Message
+				if srcChatId == src.ChatId {
+					isReplaced := false
+					fromChatMessageId := fmt.Sprintf("%d:%d", src.ChatId, src.Id)
+					toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
+					log.Printf("fromChatMessageId: %s toChatMessageIds: %v", fromChatMessageId, toChatMessageIds)
+					var dscId int64 = 0
+					for _, toChatMessageId := range toChatMessageIds {
+						a := strings.Split(toChatMessageId, ":")
+						if int64(convertToInt(a[0])) == dscChatId {
+							dscId = int64(convertToInt(a[1]))
+							break
+						}
+					}
+					if dscId != 0 {
+						if messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
+							ChatId:    dscChatId,
+							MessageId: getNewMessageId(dscChatId, dscId),
+						}); err != nil {
+							log.Print("GetMessageLink() ", err)
+						} else {
+							entity.Type = &client.TextEntityTypeTextUrl{
+								Url: messageLink.Link,
+							}
+							isReplaced = true
+						}
+					}
+					if !isReplaced && withDeleteExternal {
+						entity.Type = &client.TextEntityTypeStrikethrough{}
+					}
+				}
+			}
+		}
+	}
+}
+
+func copyFormattedText(formattedText *client.FormattedText) *client.FormattedText {
+	result := *formattedText
+	return &result
 }

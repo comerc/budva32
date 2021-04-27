@@ -1,14 +1,29 @@
 package config
 
-const fileName = "config.yml"
+const filename = "config.yml"
 
 type Config struct {
-	SourceLinks map[int64]SourceLink
-	Reports     Reports
-	Forwards    []Forward
+	ReplaceMyselfLinks map[int64]ReplaceMyselfLink
+	Sources            map[int64]Source
+	Reports            Reports
+	Forwards           []Forward
 }
 
-type SourceLink struct {
+type ReplaceMyselfLink struct {
+	DeleteExternal bool
+}
+
+type Source struct {
+	Sign Sign
+	Link Link
+}
+
+type Sign struct {
+	Title string
+	For   []int64
+}
+
+type Link struct {
 	Title string
 	For   []int64
 }

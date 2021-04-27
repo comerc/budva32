@@ -52,12 +52,20 @@ $ sudo chmod -R 777 ./tdata
 ## config.yml example
 
 ```yml
-SourceLinks:
+# escape markdown '\*\_\{\}\[\]\(\)\#\+\-\.\!'
+ReplaceMyselfLinks:
+	-2222:
+    DeleteExternal: true
+Sources:
   -1234:
-		Title: "*ChannelName*" # for SendCopy (with markdown)
-    For: [-4321]
+    Sign:
+      Title: '*\#Source*' # for SendCopy (with markdown)
+      For: [-8888]
+    Link:
+			Title: "*Source*" # for SendCopy (with markdown)
+			For: [-4321]
 Reports:
-  Template: "За *24 часа* отобрал: *%d* из *%d* 😎\n#ForwarderStats" # (with markdown)
+  Template: "За *24 часа* отобрал: *%d* из *%d* 😎\n\\#ForwarderStats" # (with markdown)
   For: [
       -2222,
       -4321,

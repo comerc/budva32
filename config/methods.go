@@ -13,7 +13,7 @@ import (
 	"github.com/radovskyb/watcher"
 )
 
-var path = filepath.Join(".", fileName)
+var path = filepath.Join(".", filename)
 
 func Load() (*Config, error) {
 	var (
