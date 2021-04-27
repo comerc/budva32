@@ -694,7 +694,7 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 				continue
 			}
 			dscId := dsc.Id
-			src := messages[i] // !!!! origin messages
+			src := messages[i] // !!!! for origin message
 			toChatMessageId := fmt.Sprintf("%d:%d", dscChatId, dscId)
 			fromChatMessageId := fmt.Sprintf("%d:%d", src.ChatId, src.Id)
 			setCopiedMessageId(fromChatMessageId, toChatMessageId)
@@ -1286,7 +1286,7 @@ func getInputMessageContent(messageContent client.MessageContent, formattedText 
 			Duration: messageAnimation.Animation.Duration,
 			Width:    messageAnimation.Animation.Width,
 			Height:   messageAnimation.Animation.Height,
-			Caption:  messageAnimation.Caption,
+			Caption:  formattedText,
 		}
 	case ContentModeAudio:
 		messageAudio := messageContent.(*client.MessageAudio)
@@ -1298,7 +1298,7 @@ func getInputMessageContent(messageContent client.MessageContent, formattedText 
 			Title:               messageAudio.Audio.Title,
 			Duration:            messageAudio.Audio.Duration,
 			Performer:           messageAudio.Audio.Performer,
-			Caption:             messageAudio.Caption,
+			Caption:             formattedText,
 		}
 	case ContentModeDocument:
 		messageDocument := messageContent.(*client.MessageDocument)
@@ -1307,7 +1307,7 @@ func getInputMessageContent(messageContent client.MessageContent, formattedText 
 				Id: messageDocument.Document.Document.Remote.Id,
 			},
 			Thumbnail: getInputThumbnail(messageDocument.Document.Thumbnail),
-			Caption:   messageDocument.Caption,
+			Caption:   formattedText,
 		}
 	case ContentModePhoto:
 		messagePhoto := messageContent.(*client.MessagePhoto)
@@ -1320,7 +1320,7 @@ func getInputMessageContent(messageContent client.MessageContent, formattedText 
 			// TODO: AddedStickerFileIds: ,
 			Width:   messagePhoto.Photo.Sizes[0].Width,
 			Height:  messagePhoto.Photo.Sizes[0].Height,
-			Caption: messagePhoto.Caption,
+			Caption: formattedText,
 			// Ttl: ,
 		}
 	case ContentModeVideo:
@@ -1347,7 +1347,7 @@ func getInputMessageContent(messageContent client.MessageContent, formattedText 
 			Width:             messageVideo.Video.Width,
 			Height:            messageVideo.Video.Height,
 			SupportsStreaming: messageVideo.Video.SupportsStreaming,
-			Caption:           messageVideo.Caption,
+			Caption:           formattedText,
 			// Ttl: ,
 		}
 	case ContentModeVoiceNote:
@@ -1370,7 +1370,7 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 				if originMessage, err := getOriginMessage(origin.ChatId, origin.MessageId); err != nil {
 					log.Print("getOriginMessage() ", err)
 				} else {
-					*message = *originMessage
+					messages[i] = originMessage
 				}
 			}
 		}
