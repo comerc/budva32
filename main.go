@@ -1363,6 +1363,7 @@ func getInputMessageContent(messageContent client.MessageContent, formattedText 
 }
 
 func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dscChatId int64, forward config.Forward) (*client.Messages, error) {
+	// srcChatId - не использую, только для дебага
 	contents := make([]client.InputMessageContent, 0)
 	for i, message := range messages {
 		if message.ForwardInfo != nil {
