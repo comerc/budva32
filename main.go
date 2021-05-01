@@ -432,7 +432,7 @@ func runReports() {
 	for t := range ticker.C {
 		utc := t.UTC()
 		w := utc.Weekday()
-		if w == 6 || w == 0 {
+		if w == 0 || w == 1 {
 			continue
 		}
 		h := utc.Hour()
