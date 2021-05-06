@@ -34,6 +34,7 @@ import (
 // TODO: как бороться с зацикливанием пересылки
 // TODO: падает при удалении целевого чата?
 // TODO: edit & delete требуют ожидания waitForForward и накапливаемого waitForMediaAlbum (или забить?)
+// TODO: вынести waitForForward в конфиг (не для всех каналов требуется ожидание реакции бота)
 // TODO: фильтры, как исполняемые скрипты на node.js
 // TODO: ротация лога
 // TODO: синхронизировать закреп сообщений
@@ -431,10 +432,10 @@ func runReports() {
 	defer ticker.Stop()
 	for t := range ticker.C {
 		utc := t.UTC()
-		w := utc.Weekday()
-		if w == 0 || w == 1 {
-			continue
-		}
+		// w := utc.Weekday()
+		// if w == 0 || w == 1 {
+		// 	continue
+		// }
 		h := utc.Hour()
 		m := utc.Minute()
 		if h == 0 && m == 0 {
