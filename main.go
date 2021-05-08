@@ -1426,7 +1426,7 @@ func getOriginMessage(chatId, messageId int64) (*client.Message, error) {
 		return src, err
 	}
 	// рекурсия лишняя,
-	// т.к. телега не пересылае пересланное сообщение, а сама подменяет на оригинальное;
+	// т.к. телега не пересылает пересланное сообщение, а сама подменяет на оригинальное;
 	// но где гарантия, что кастомные клиенты работают так же? :)
 	if src.ForwardInfo != nil {
 		src, err = getOriginMessage(chatId, messageId)
