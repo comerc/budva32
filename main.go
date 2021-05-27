@@ -29,6 +29,7 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: при копировании теряется картинка (заменяется на предпросмотр ссылки) https://t.me/Full_Time_Trading/46292
 // TODO: https://telegram.org/blog/payments-2-0-scheduled-voice-chats/ru
 // TODO: ОГРОМНОЕ ТОРНАДО ПРОШЛО В ВЕРНОНЕ - похерился американский флаг при копировании на мобильной версии
 // TODO: как бороться с зацикливанием пересылки
@@ -326,7 +327,7 @@ func main() {
 					srcFormattedText, contentMode := getFormattedText(src.Content)
 					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, srcFormattedText != nil && srcFormattedText.Text != "", src.MediaAlbumId)
 					for _, toChatMessageId := range toChatMessageIds {
-						a := strings.Split(string(toChatMessageId), ":")
+						a := strings.Split(toChatMessageId, ":")
 						dscChatId := int64(convertToInt(a[0]))
 						dscId := int64(convertToInt(a[1]))
 						formattedText := copyFormattedText(srcFormattedText)
@@ -404,7 +405,7 @@ func main() {
 						toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
 						deleteCopiedMessageIds(fromChatMessageId)
 						for _, toChatMessageId := range toChatMessageIds {
-							a := strings.Split(string(toChatMessageId), ":")
+							a := strings.Split(toChatMessageId, ":")
 							dscChatId := int64(convertToInt(a[0]))
 							dscId := int64(convertToInt(a[1]))
 							newMessageId := getNewMessageId(dscChatId, dscId)
