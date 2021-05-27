@@ -49,7 +49,7 @@ but then we have problem with permissions (may be need docker rootless mode?):
 $ sudo chmod -R 777 ./tdata
 ``` -->
 
-## config.yml example
+## .config.yml example
 
 ```yml
 # escape markdown '\*\_\{\}\[\]\(\)\#\+\-\.\!'

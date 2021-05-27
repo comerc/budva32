@@ -1,6 +1,6 @@
 package config
 
-const filename = "config.yml"
+const filename = ".config.yml"
 
 type Config struct {
 	ReplaceMyselfLinks map[int64]ReplaceMyselfLink
