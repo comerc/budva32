@@ -29,7 +29,7 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: при копировании теряется картинка (заменяется на предпросмотр ссылки) https://t.me/Full_Time_Trading/46292
+// TODO: при копировании теряется картинка (заменяется на предпросмотр ссылки - из-за пробела для ссылки) https://t.me/Full_Time_Trading/46292
 // TODO: https://telegram.org/blog/payments-2-0-scheduled-voice-chats/ru
 // TODO: ОГРОМНОЕ ТОРНАДО ПРОШЛО В ВЕРНОНЕ - похерился американский флаг при копировании на мобильной версии
 // TODO: как бороться с зацикливанием пересылки
