@@ -37,7 +37,6 @@ import (
 // TODO: хочется безусловную ссылку на исходное сообщение, если оно попало в Forward.Check - для этого нужно форвардить, а не копировать сообщения
 // TODO: хочется получать уведомления (Forward.Check) - какие сообщения были исключены
 // TODO: синхронизировать закреп сообщений
-// TODO: dsc* >> dst*
 // TODO: Опция пересылки без паузы (конфигурируемое)
 // TODO: Вырезать подпись (конфигурируемое)
 // TODO: Переводить https://t.me/pantini_cnbc или https://www.cnbc.com/rss-feeds/ или https://blog.feedspot.com/stock_rss_feeds/ через Google Translate API и копировать в @teslaholics
@@ -255,10 +254,10 @@ func main() {
 				for i, forward := range configData.Forwards {
 					if src.ChatId == forward.From && src.CanBeForwarded {
 						isExist = true
-						for _, dscChatId := range forward.To {
-							_, isPresent := forwardedTo[dscChatId]
+						for _, dstChatId := range forward.To {
+							_, isPresent := forwardedTo[dstChatId]
 							if !isPresent {
-								forwardedTo[dscChatId] = false
+								forwardedTo[dstChatId] = false
 							}
 						}
 						if src.MediaAlbumId == 0 {
@@ -298,11 +297,11 @@ func main() {
 					go func() {
 						wg.Wait()
 						log.Print("wg.Wait() for src.Id: ", src.Id)
-						for dscChatId, isForwarded := range forwardedTo {
+						for dstChatId, isForwarded := range forwardedTo {
 							if isForwarded {
-								incrementForwardedMessages(dscChatId)
+								incrementForwardedMessages(dstChatId)
 							}
-							incrementViewedMessages(dscChatId)
+							incrementViewedMessages(dstChatId)
 						}
 						for other, fn := range otherFns {
 							if fn == nil {
@@ -340,60 +339,60 @@ func main() {
 					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, srcFormattedText != nil && srcFormattedText.Text != "", src.MediaAlbumId)
 					for _, toChatMessageId := range toChatMessageIds {
 						a := strings.Split(toChatMessageId, ":")
-						dscChatId := int64(convertToInt(a[0]))
-						dscId := int64(convertToInt(a[1]))
+						dstChatId := int64(convertToInt(a[0]))
+						dstId := int64(convertToInt(a[1]))
 						formattedText := copyFormattedText(srcFormattedText)
-						if replaceMyselfLink, ok := configData.ReplaceMyselfLinks[dscChatId]; ok {
-							replaceMyselfLinks(formattedText, src.ChatId, dscChatId, replaceMyselfLink.DeleteExternal)
+						if replaceMyselfLink, ok := configData.ReplaceMyselfLinks[dstChatId]; ok {
+							replaceMyselfLinks(formattedText, src.ChatId, dstChatId, replaceMyselfLink.DeleteExternal)
 						}
 						if source, ok := configData.Sources[src.ChatId]; ok {
-							if containsInt64(source.Sign.For, dscChatId) {
+							if containsInt64(source.Sign.For, dstChatId) {
 								addSourceSign(formattedText, source.Sign.Title)
 							}
-							if containsInt64(source.Link.For, dscChatId) {
+							if containsInt64(source.Link.For, dstChatId) {
 								addSourceLink(src, formattedText, source.Link.Title)
 							}
 						}
-						newMessageId := getNewMessageId(dscChatId, dscId)
+						newMessageId := getNewMessageId(dstChatId, dstId)
 						result = append(result, fmt.Sprintf("toChatMessageId: %s, newMessageId: %d", toChatMessageId, newMessageId))
 						log.Print("contentMode: ", contentMode)
 						switch contentMode {
 						case ContentModeText:
 							content := getInputMessageContent(src.Content, formattedText, contentMode)
-							dsc, err := tdlibClient.EditMessageText(&client.EditMessageTextRequest{
-								ChatId:              dscChatId,
+							dst, err := tdlibClient.EditMessageText(&client.EditMessageTextRequest{
+								ChatId:              dstChatId,
 								MessageId:           newMessageId,
 								InputMessageContent: content,
 							})
 							if err != nil {
 								log.Print("EditMessageText() ", err)
 							}
-							log.Printf("EditMessageText() dsc: %#v", dsc)
+							log.Printf("EditMessageText() dst: %#v", dst)
 						case ContentModeAnimation:
 						case ContentModeDocument:
 						case ContentModeAudio:
 						case ContentModeVideo:
 						case ContentModePhoto:
 							content := getInputMessageContent(src.Content, formattedText, contentMode)
-							dsc, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
-								ChatId:              dscChatId,
+							dst, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
+								ChatId:              dstChatId,
 								MessageId:           newMessageId,
 								InputMessageContent: content,
 							})
 							if err != nil {
 								log.Print("EditMessageMedia() ", err)
 							}
-							log.Printf("EditMessageMedia() dsc: %#v", dsc)
+							log.Printf("EditMessageMedia() dst: %#v", dst)
 						case ContentModeVoiceNote:
-							dsc, err := tdlibClient.EditMessageCaption(&client.EditMessageCaptionRequest{
-								ChatId:    dscChatId,
+							dst, err := tdlibClient.EditMessageCaption(&client.EditMessageCaptionRequest{
+								ChatId:    dstChatId,
 								MessageId: newMessageId,
 								Caption:   formattedText,
 							})
 							if err != nil {
 								log.Print("EditMessageCaption() ", err)
 							}
-							log.Printf("EditMessageCaption() dsc: %#v", dsc)
+							log.Printf("EditMessageCaption() dst: %#v", dst)
 						}
 					}
 				}
@@ -418,11 +417,11 @@ func main() {
 						deleteCopiedMessageIds(fromChatMessageId)
 						for _, toChatMessageId := range toChatMessageIds {
 							a := strings.Split(toChatMessageId, ":")
-							dscChatId := int64(convertToInt(a[0]))
-							dscId := int64(convertToInt(a[1]))
-							newMessageId := getNewMessageId(dscChatId, dscId)
+							dstChatId := int64(convertToInt(a[0]))
+							dstId := int64(convertToInt(a[1]))
+							newMessageId := getNewMessageId(dstChatId, dstId)
 							_, err := tdlibClient.DeleteMessages(&client.DeleteMessagesRequest{
-								ChatId:     dscChatId,
+								ChatId:     dstChatId,
 								MessageIds: []int64{newMessageId},
 								Revoke:     true,
 							})
@@ -430,7 +429,7 @@ func main() {
 								log.Print("DeleteMessages() ", err)
 								continue
 							}
-							result = append(result, fmt.Sprintf("%d:%d", dscChatId, newMessageId))
+							result = append(result, fmt.Sprintf("%d:%d", dstChatId, newMessageId))
 						}
 					}
 				}
@@ -660,22 +659,22 @@ func setLastForwarded(chatId int64) {
 	lastForwarded[chatId] = time.Now()
 }
 
-func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dscChatId int64, forward config.Forward) {
-	log.Printf("forwardNewMessages() srcChatId: %d dscChatId: %d", srcChatId, dscChatId)
-	diff := getLastForwardedDiff(dscChatId)
+func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dstChatId int64, forward config.Forward) {
+	log.Printf("forwardNewMessages() srcChatId: %d dstChatId: %d", srcChatId, dstChatId)
+	diff := getLastForwardedDiff(dstChatId)
 	if diff < waitForForward {
 		time.Sleep(waitForForward - diff)
 	}
-	setLastForwarded(dscChatId)
+	setLastForwarded(dstChatId)
 	var (
 		result *client.Messages
 		err    error
 	)
 	if forward.SendCopy {
-		result, err = sendCopyNewMessages(tdlibClient, messages, srcChatId, dscChatId, forward)
+		result, err = sendCopyNewMessages(tdlibClient, messages, srcChatId, dstChatId, forward)
 	} else {
 		result, err = tdlibClient.ForwardMessages(&client.ForwardMessagesRequest{
-			ChatId:     dscChatId,
+			ChatId:     dstChatId,
 			FromChatId: srcChatId,
 			MessageIds: func() []int64 {
 				var messageIds []int64
@@ -702,14 +701,14 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 	} else if len(result.Messages) != len(messages) {
 		log.Print("forwardNewMessages(): invalid len(messages)")
 	} else if forward.SendCopy {
-		for i, dsc := range result.Messages {
-			if dsc == nil {
-				log.Printf("!!!! dsc == nil !!!! result: %#v messages: %#v", result, messages)
+		for i, dst := range result.Messages {
+			if dst == nil {
+				log.Printf("!!!! dst == nil !!!! result: %#v messages: %#v", result, messages)
 				continue
 			}
-			dscId := dsc.Id
+			dstId := dst.Id
 			src := messages[i] // !!!! for origin message
-			toChatMessageId := fmt.Sprintf("%d:%d", dscChatId, dscId)
+			toChatMessageId := fmt.Sprintf("%d:%d", dstChatId, dstId)
 			fromChatMessageId := fmt.Sprintf("%d:%d", src.ChatId, src.Id)
 			setCopiedMessageId(fromChatMessageId, toChatMessageId)
 		}
@@ -1056,18 +1055,18 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 	if checkFilters(formattedText, forward, &isOther) {
 		isFilters = true
 		otherFns[forward.Other] = nil
-		for _, dscChatId := range forward.To {
-			if isNotForwardedTo(forwardedTo, dscChatId) {
-				forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward)
-				result = append(result, dscChatId)
+		for _, dstChatId := range forward.To {
+			if isNotForwardedTo(forwardedTo, dstChatId) {
+				forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, forward)
+				result = append(result, dstChatId)
 			}
 		}
 	} else if isOther && forward.Other != 0 {
 		_, ok := otherFns[forward.Other]
 		if !ok {
 			otherFns[forward.Other] = func() {
-				dscChatId := forward.Other
-				forwardNewMessages(tdlibClient, messages, src.ChatId, dscChatId, forward)
+				dstChatId := forward.Other
+				forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, forward)
 			}
 		}
 	}
@@ -1107,11 +1106,11 @@ func incrementForwardedMessages(toChatId int64) {
 
 var forwardedToMu sync.Mutex
 
-func isNotForwardedTo(forwardedTo map[int64]bool, dscChatId int64) bool {
+func isNotForwardedTo(forwardedTo map[int64]bool, dstChatId int64) bool {
 	forwardedToMu.Lock()
 	defer forwardedToMu.Unlock()
-	if !forwardedTo[dscChatId] {
-		forwardedTo[dscChatId] = true
+	if !forwardedTo[dstChatId] {
+		forwardedTo[dstChatId] = true
 		return true
 	}
 	return false
@@ -1376,7 +1375,7 @@ func getInputMessageContent(messageContent client.MessageContent, formattedText 
 	return nil
 }
 
-func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dscChatId int64, forward config.Forward) (*client.Messages, error) {
+func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dstChatId int64, forward config.Forward) (*client.Messages, error) {
 	// srcChatId - не использую, только для дебага
 	contents := make([]client.InputMessageContent, 0)
 	for i, message := range messages {
@@ -1392,15 +1391,15 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 		src := messages[i] // !!!! for origin message
 		formattedText, contentMode := getFormattedText(src.Content)
 		formattedText = copyFormattedText(formattedText)
-		if replaceMyselfLink, ok := configData.ReplaceMyselfLinks[dscChatId]; ok {
-			replaceMyselfLinks(formattedText, src.ChatId, dscChatId, replaceMyselfLink.DeleteExternal)
+		if replaceMyselfLink, ok := configData.ReplaceMyselfLinks[dstChatId]; ok {
+			replaceMyselfLinks(formattedText, src.ChatId, dstChatId, replaceMyselfLink.DeleteExternal)
 		}
 		if i == 0 {
 			if source, ok := configData.Sources[src.ChatId]; ok {
-				if containsInt64(source.Sign.For, dscChatId) {
+				if containsInt64(source.Sign.For, dstChatId) {
 					addSourceSign(formattedText, source.Sign.Title)
 				}
-				if containsInt64(source.Link.For, dscChatId) {
+				if containsInt64(source.Link.For, dstChatId) {
 					addSourceLink(src, formattedText, source.Link.Title)
 				}
 			}
@@ -1412,7 +1411,7 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 	}
 	if len(contents) == 1 {
 		message, err := tdlibClient.SendMessage(&client.SendMessageRequest{
-			ChatId:              dscChatId,
+			ChatId:              dstChatId,
 			InputMessageContent: contents[0],
 		})
 		if err != nil {
@@ -1424,7 +1423,7 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 		}, nil
 	} else {
 		return tdlibClient.SendMessageAlbum(&client.SendMessageAlbumRequest{
-			ChatId:               dscChatId,
+			ChatId:               dstChatId,
 			InputMessageContents: contents,
 		})
 	}
@@ -1447,8 +1446,8 @@ func getOriginMessage(chatId, messageId int64) (*client.Message, error) {
 	return src, err
 }
 
-func replaceMyselfLinks(formattedText *client.FormattedText, srcChatId, dscChatId int64, withDeleteExternal bool) {
-	log.Printf("replaceMyselfLinks() srcChatId: %d dscChatId: %d", srcChatId, dscChatId)
+func replaceMyselfLinks(formattedText *client.FormattedText, srcChatId, dstChatId int64, withDeleteExternal bool) {
+	log.Printf("replaceMyselfLinks() srcChatId: %d dstChatId: %d", srcChatId, dstChatId)
 	for _, entity := range formattedText.Entities {
 		if textUrl, ok := entity.Type.(*client.TextEntityTypeTextUrl); ok {
 			if messageLinkInfo, err := tdlibClient.GetMessageLinkInfo(&client.GetMessageLinkInfoRequest{
@@ -1462,18 +1461,18 @@ func replaceMyselfLinks(formattedText *client.FormattedText, srcChatId, dscChatI
 					fromChatMessageId := fmt.Sprintf("%d:%d", src.ChatId, src.Id)
 					toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
 					log.Printf("fromChatMessageId: %s toChatMessageIds: %v", fromChatMessageId, toChatMessageIds)
-					var dscId int64 = 0
+					var dstId int64 = 0
 					for _, toChatMessageId := range toChatMessageIds {
 						a := strings.Split(toChatMessageId, ":")
-						if int64(convertToInt(a[0])) == dscChatId {
-							dscId = int64(convertToInt(a[1]))
+						if int64(convertToInt(a[0])) == dstChatId {
+							dstId = int64(convertToInt(a[1]))
 							break
 						}
 					}
-					if dscId != 0 {
+					if dstId != 0 {
 						if messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
-							ChatId:    dscChatId,
-							MessageId: getNewMessageId(dscChatId, dscId),
+							ChatId:    dstChatId,
+							MessageId: getNewMessageId(dstChatId, dstId),
 						}); err != nil {
 							log.Print("GetMessageLink() ", err)
 						} else {

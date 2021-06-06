@@ -155,7 +155,7 @@ func getMessageLink(srcChatId, srcMessageId int) {
 	rows := make([][]*client.InlineKeyboardButton, 0)
 	rows = append(rows, row)
 	_, err := tdlibClient.SendMessage(&client.SendMessageRequest{
-		ChatId: dscChatId,
+		ChatId: dstChatId,
 		InputMessageContent: &client.InputMessageText{
 			Text:                  formattedText,
 			DisableWebPagePreview: true,
