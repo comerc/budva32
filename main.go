@@ -1409,10 +1409,28 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 			contents = append(contents, content)
 		}
 	}
+	var replyToMessageId int64 = 0
+	src := messages[0]
+	if src.ReplyToMessageId > 0 && src.ReplyInChatId == src.ChatId {
+		fromChatMessageId := fmt.Sprintf("%d:%d", src.ReplyInChatId, src.ReplyToMessageId)
+		toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
+		var dstId int64 = 0
+		for _, toChatMessageId := range toChatMessageIds {
+			a := strings.Split(toChatMessageId, ":")
+			if int64(convertToInt(a[0])) == dstChatId {
+				dstId = int64(convertToInt(a[1]))
+				break
+			}
+		}
+		if dstId != 0 {
+			replyToMessageId = getNewMessageId(dstChatId, dstId)
+		}
+	}
 	if len(contents) == 1 {
 		message, err := tdlibClient.SendMessage(&client.SendMessageRequest{
 			ChatId:              dstChatId,
 			InputMessageContent: contents[0],
+			ReplyToMessageId:    replyToMessageId,
 		})
 		if err != nil {
 			return nil, err
@@ -1425,6 +1443,7 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 		return tdlibClient.SendMessageAlbum(&client.SendMessageAlbumRequest{
 			ChatId:               dstChatId,
 			InputMessageContents: contents,
+			ReplyToMessageId:     replyToMessageId,
 		})
 	}
 }
