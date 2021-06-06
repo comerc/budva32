@@ -1,4 +1,5 @@
 .tdata/
 .env
 .config.yml
+.config.*.yml
 budva32

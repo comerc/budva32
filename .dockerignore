@@ -2,6 +2,7 @@
 .tdata/
 .env
 .config.yml
+.config.*.yml
 .dockerignore
 .gitignore
 docker-compose.yml
