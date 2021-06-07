@@ -53,9 +53,13 @@ $ sudo chmod -R 777 ./tdata
 
 ```yml
 # escape markdown '\*\_\{\}\[\]\(\)\#\+\-\.\!'
-ReplaceMyselfLinks:
+ReplaceMyselfLinks: # for destinations
 	-2222:
     DeleteExternal: true
+ReplaceFragments: # for destinations
+  -2222:
+    "aaaa": "bbbb"
+    "cccc": "dddd"
 Sources:
   -1234:
     Sign:

@@ -29,27 +29,25 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: из 10 скопировал только 5 картинок в альбоме https://t.me/teslaholics2/6526 (но через copy_to_teslaholics скопировано правильно) - надо дольше ждать все сообщения для альбома?
-// TODO: при копировании ответа теряется цитата (см. UBRTRD)
+// TODO: при копировании теряется картинка (заменяется на предпросмотр ссылки - из-за пробела для ссылки) https://t.me/Full_Time_Trading/46292
+// TODO: если клиент был в офлайне, то каким образом он получает пропущенные сообщения? GetChatHistory()
+// TODO: если на момент начала пересылки не было исходного сообщения, то его редактирование не работает и ссылки на это сообщение ведут в никуда; надо создать вручную с мапингом на id исходного сообщения
 // TODO: вырезать из сообщения ссылки по шаблону (https://t.me/c/1234/* - см. BRAVO)
 // TODO: подменять @xxxx на @yyyy
 // TODO: добавить справочник с константами для конфига
-// TODO: хочется безусловную ссылку на исходное сообщение, если оно попало в Forward.Check - для этого нужно форвардить, а не копировать сообщения
+// TODO: хочется безусловную ссылку на исходное сообщение, если оно попало в Forward.Check - для этого нужно форвардить, а не копировать сообщения (тоже самое актуально для Forward.Other)
 // TODO: хочется получать уведомления (Forward.Check) - какие сообщения были исключены
 // TODO: синхронизировать закреп сообщений
-// TODO: Опция пересылки без паузы (конфигурируемое)
+// TODO: вынести waitForForward в конфиг (не для всех каналов требуется ожидание реакции бота)
 // TODO: Вырезать подпись (конфигурируемое)
 // TODO: Переводить https://t.me/pantini_cnbc или https://www.cnbc.com/rss-feeds/ или https://blog.feedspot.com/stock_rss_feeds/ через Google Translate API и копировать в @teslaholics
-// TODO: при копировании теряется картинка (заменяется на предпросмотр ссылки - из-за пробела для ссылки) https://t.me/Full_Time_Trading/46292
 // TODO: https://telegram.org/blog/payments-2-0-scheduled-voice-chats/ru
 // TODO: ОГРОМНОЕ ТОРНАДО ПРОШЛО В ВЕРНОНЕ - похерился американский флаг при копировании на мобильной версии
 // TODO: как бороться с зацикливанием пересылки
-// TODO: падает при удалении целевого чата?
 // TODO: edit & delete требуют ожидания waitForForward и накапливаемого waitForMediaAlbum (или забить?)
-// TODO: вынести waitForForward в конфиг (не для всех каналов требуется ожидание реакции бота)
 // TODO: фильтры, как исполняемые скрипты на node.js
 // TODO: ротация лога
-// TODO: синхронизировать закреп сообщений
+// TODO: падает при удалении целевого чата?
 // TODO: Restart Go program by itself:
 // https://github.com/rcrowley/goagain
 // https://github.com/jpillora/overseer
@@ -1380,10 +1378,12 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 	contents := make([]client.InputMessageContent, 0)
 	for i, message := range messages {
 		if message.ForwardInfo != nil {
+			log.Print("message.ForwardInfo")
 			if origin, ok := message.ForwardInfo.Origin.(*client.MessageForwardOriginChannel); ok {
 				if originMessage, err := getOriginMessage(origin.ChatId, origin.MessageId); err != nil {
 					log.Print("getOriginMessage() ", err)
 				} else {
+					log.Print("originMessage")
 					messages[i] = originMessage
 				}
 			}
@@ -1401,6 +1401,31 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 				}
 				if containsInt64(source.Link.For, dstChatId) {
 					addSourceLink(src, formattedText, source.Link.Title)
+				}
+			}
+		}
+		if replaceFragments, ok := configData.ReplaceFragments[dstChatId]; ok {
+			if markdownText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{Text: formattedText}); err != nil {
+				log.Print(err)
+			} else {
+				isReplaced := false
+				for from, to := range replaceFragments {
+					re := regexp.MustCompile("(?i)" + from)
+					if re.FindString(markdownText.Text) != "" {
+						isReplaced = true
+						markdownText.Text = re.ReplaceAllString(markdownText.Text, to)
+					}
+				}
+				if isReplaced {
+					var err error
+					formattedText, err = tdlibClient.ParseMarkdown(
+						&client.ParseMarkdownRequest{
+							Text: markdownText,
+						},
+					)
+					if err != nil {
+						log.Print(err)
+					}
 				}
 			}
 		}
@@ -1459,9 +1484,9 @@ func getOriginMessage(chatId, messageId int64) (*client.Message, error) {
 	// рекурсия лишняя,
 	// т.к. телега не пересылает пересланное сообщение, а сама подменяет на оригинальное;
 	// но где гарантия, что кастомные клиенты работают так же? :)
-	if src.ForwardInfo != nil {
-		src, err = getOriginMessage(chatId, messageId)
-	}
+	// if src.ForwardInfo != nil {
+	// 	src, err = getOriginMessage(chatId, messageId) // ошибка: тут же будет зацикливание?
+	// }
 	return src, err
 }
 
@@ -1475,7 +1500,7 @@ func replaceMyselfLinks(formattedText *client.FormattedText, srcChatId, dstChatI
 				log.Print("GetMessageLinkInfo() ", err)
 			} else {
 				src := messageLinkInfo.Message
-				if srcChatId == src.ChatId {
+				if src != nil && srcChatId == src.ChatId {
 					isReplaced := false
 					fromChatMessageId := fmt.Sprintf("%d:%d", src.ChatId, src.Id)
 					toChatMessageIds := getCopiedMessageIds(fromChatMessageId)

@@ -4,6 +4,7 @@ const filename = ".config.yml"
 
 type Config struct {
 	ReplaceMyselfLinks map[int64]ReplaceMyselfLink
+	ReplaceFragments   map[int64]map[string]string
 	Sources            map[int64]Source
 	Reports            Reports
 	Forwards           []Forward
@@ -41,7 +42,7 @@ type Forward struct {
 	Include         string
 	IncludeSubmatch []IncludeSubmatch
 	SendCopy        bool
-	Force           bool
+	// Check           int64 // TODO: что было отсечено по Exclude
 }
 
 type IncludeSubmatch struct {
