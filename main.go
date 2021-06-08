@@ -29,14 +29,15 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: если не удалось обработать какое-либо сообщение, то отправлять его в канал Forward.Error
+// TODO: Вырезать подпись (конфигурируемое)
+// TODO: синхронизировать закреп сообщений
 // TODO: при копировании теряется картинка (заменяется на предпросмотр ссылки - из-за пробела для ссылки) https://t.me/Full_Time_Trading/46292
 // TODO: если клиент был в офлайне, то каким образом он получает пропущенные сообщения? GetChatHistory() (хотя бот-API досылает пропущенные)
 // TODO: если на момент начала пересылки не было исходного сообщения, то его редактирование не работает и ссылки на это сообщение ведут в никуда; надо создать вручную с мапингом на id исходного сообщения
 // TODO: вырезать из сообщения ссылки по шаблону (https://t.me/c/1234/* - см. BRAVO)
 // TODO: добавить справочник с константами для конфига
-// TODO: синхронизировать закреп сообщений
 // TODO: вынести waitForForward в конфиг (не для всех каналов требуется ожидание реакции бота)
-// TODO: Вырезать подпись (конфигурируемое)
 // TODO: Переводить https://t.me/pantini_cnbc или https://www.cnbc.com/rss-feeds/ или https://blog.feedspot.com/stock_rss_feeds/ через Google Translate API и копировать в @teslaholics
 // TODO: ОГРОМНОЕ ТОРНАДО ПРОШЛО В ВЕРНОНЕ - похерился американский флаг при копировании на мобильной версии
 // TODO: как бороться с зацикливанием пересылки
@@ -1428,31 +1429,33 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 				}
 			}
 		}
-		if replaceFragments, ok := configData.ReplaceFragments[dstChatId]; ok {
-			if markdownText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{Text: formattedText}); err != nil {
-				log.Print(err)
-			} else {
-				isReplaced := false
-				for from, to := range replaceFragments {
-					re := regexp.MustCompile("(?i)" + from)
-					if re.FindString(markdownText.Text) != "" {
-						isReplaced = true
-						markdownText.Text = re.ReplaceAllString(markdownText.Text, to)
-					}
-				}
-				if isReplaced {
-					var err error
-					formattedText, err = tdlibClient.ParseMarkdown(
-						&client.ParseMarkdownRequest{
-							Text: markdownText,
-						},
-					)
-					if err != nil {
-						log.Print(err)
-					}
-				}
-			}
-		}
+		// TODO: https://github.com/tdlib/td/issues/1564
+		// if replaceFragments, ok := configData.ReplaceFragments[dstChatId]; ok {
+		// 	if markdownText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{Text: formattedText}); err != nil {
+		// 		log.Print(err)
+		// 	} else {
+		// 		log.Print(markdownText.Text)
+		// 		isReplaced := false
+		// 		for from, to := range replaceFragments {
+		// 			re := regexp.MustCompile("(?i)" + from)
+		// 			if re.FindString(markdownText.Text) != "" {
+		// 				isReplaced = true
+		// 				markdownText.Text = re.ReplaceAllString(markdownText.Text, to)
+		// 			}
+		// 		}
+		// 		if isReplaced {
+		// 			var err error
+		// 			formattedText, err = tdlibClient.ParseMarkdown(
+		// 				&client.ParseMarkdownRequest{
+		// 					Text: markdownText,
+		// 				},
+		// 			)
+		// 			if err != nil {
+		// 				log.Print(err)
+		// 			}
+		// 		}
+		// 	}
+		// }
 		content := getInputMessageContent(src.Content, formattedText, contentMode)
 		if content != nil {
 			contents = append(contents, content)
