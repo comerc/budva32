@@ -80,7 +80,8 @@ Forwards:
 		To: [-2222]
 	- From: -1234
 		To: [-4321, -8888]
-		Other: -4444
+    Check: -7777 # after exclude
+		Other: -4444 # after include
 		# WithEdited: true # deprecated
 		SendCopy: true
 		Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
@@ -177,3 +178,23 @@ func getMessageLink(srcChatId, srcMessageId int) {
 - [marperia/fwdbot](https://github.com/marperia/fwdbot)
 - [wcsiu/telegram-client-demo](https://github.com/wcsiu/telegram-client-demo) + [article](https://wcsiu.github.io/2020/12/26/create-a-telegram-client-in-go-with-docker.html)
 - [Создание и развертывание ретранслятора Telegram каналов, используя Python и Heroku](https://vc.ru/dev/158757-sozdanie-i-razvertyvanie-retranslyatora-telegram-kanalov-ispolzuya-python-i-heroku)
+
+## Filters Mode
+
+Exclude #COIN
+Include #TSLA
+
+case #COIN
+Check +
+Other -
+Forward -
+
+case #TSLA
+Check -
+Other -
+Forward +
+
+case #ARK
+Check -
+Other +
+Forward -

@@ -37,12 +37,12 @@ type Reports struct {
 type Forward struct {
 	From            int64
 	To              []int64
+	Check           int64
 	Other           int64
 	Exclude         string
 	Include         string
 	IncludeSubmatch []IncludeSubmatch
 	SendCopy        bool
-	// Check           int64 // TODO: что было отсечено по Exclude
 }
 
 type IncludeSubmatch struct {

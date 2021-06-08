@@ -30,18 +30,14 @@ import (
 )
 
 // TODO: при копировании теряется картинка (заменяется на предпросмотр ссылки - из-за пробела для ссылки) https://t.me/Full_Time_Trading/46292
-// TODO: если клиент был в офлайне, то каким образом он получает пропущенные сообщения? GetChatHistory()
+// TODO: если клиент был в офлайне, то каким образом он получает пропущенные сообщения? GetChatHistory() (хотя бот-API досылает пропущенные)
 // TODO: если на момент начала пересылки не было исходного сообщения, то его редактирование не работает и ссылки на это сообщение ведут в никуда; надо создать вручную с мапингом на id исходного сообщения
 // TODO: вырезать из сообщения ссылки по шаблону (https://t.me/c/1234/* - см. BRAVO)
-// TODO: подменять @xxxx на @yyyy
 // TODO: добавить справочник с константами для конфига
-// TODO: хочется безусловную ссылку на исходное сообщение, если оно попало в Forward.Check - для этого нужно форвардить, а не копировать сообщения (тоже самое актуально для Forward.Other)
-// TODO: хочется получать уведомления (Forward.Check) - какие сообщения были исключены
 // TODO: синхронизировать закреп сообщений
 // TODO: вынести waitForForward в конфиг (не для всех каналов требуется ожидание реакции бота)
 // TODO: Вырезать подпись (конфигурируемое)
 // TODO: Переводить https://t.me/pantini_cnbc или https://www.cnbc.com/rss-feeds/ или https://blog.feedspot.com/stock_rss_feeds/ через Google Translate API и копировать в @teslaholics
-// TODO: https://telegram.org/blog/payments-2-0-scheduled-voice-chats/ru
 // TODO: ОГРОМНОЕ ТОРНАДО ПРОШЛО В ВЕРНОНЕ - похерился американский флаг при копировании на мобильной версии
 // TODO: как бороться с зацикливанием пересылки
 // TODO: edit & delete требуют ожидания waitForForward и накапливаемого waitForMediaAlbum (или забить?)
@@ -245,6 +241,7 @@ func main() {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
 				src := updateNewMessage.Message
 				isExist := false
+				checkFns := make(map[int64]func())
 				otherFns := make(map[int64]func())
 				forwardedTo := make(map[int64]bool)
 				var wg sync.WaitGroup
@@ -267,7 +264,7 @@ func main() {
 									wg.Done()
 									log.Print("wg.Done() for src.Id: ", src.Id)
 								}()
-								doUpdateNewMessage([]*client.Message{src}, forward, forwardedTo, otherFns)
+								doUpdateNewMessage([]*client.Message{src}, forward, forwardedTo, checkFns, otherFns)
 							}
 							queue.PushBack(fn)
 						} else {
@@ -283,7 +280,7 @@ func main() {
 												wg.Done()
 												log.Print("wg.Done() for src.Id: ", src.Id)
 											}()
-											doUpdateNewMessage(messages, forward, forwardedTo, otherFns)
+											doUpdateNewMessage(messages, forward, forwardedTo, checkFns, otherFns)
 										}
 										queue.PushBack(fn)
 									})
@@ -300,6 +297,14 @@ func main() {
 								incrementForwardedMessages(dstChatId)
 							}
 							incrementViewedMessages(dstChatId)
+						}
+						for check, fn := range checkFns {
+							if fn == nil {
+								log.Printf("check: %d nil", check)
+								continue
+							}
+							log.Printf("check: %d fn()", check)
+							fn()
 						}
 						for other, fn := range otherFns {
 							if fn == nil {
@@ -657,7 +662,7 @@ func setLastForwarded(chatId int64) {
 	lastForwarded[chatId] = time.Now()
 }
 
-func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dstChatId int64, forward config.Forward) {
+func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dstChatId int64, isSendCopy bool) {
 	log.Printf("forwardNewMessages() srcChatId: %d dstChatId: %d", srcChatId, dstChatId)
 	diff := getLastForwardedDiff(dstChatId)
 	if diff < waitForForward {
@@ -668,8 +673,8 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 		result *client.Messages
 		err    error
 	)
-	if forward.SendCopy {
-		result, err = sendCopyNewMessages(tdlibClient, messages, srcChatId, dstChatId, forward)
+	if isSendCopy {
+		result, err = sendCopyNewMessages(tdlibClient, messages, srcChatId, dstChatId)
 	} else {
 		result, err = tdlibClient.ForwardMessages(&client.ForwardMessagesRequest{
 			ChatId:     dstChatId,
@@ -698,7 +703,7 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 		log.Print("forwardNewMessages(): invalid TotalCount")
 	} else if len(result.Messages) != len(messages) {
 		log.Print("forwardNewMessages(): invalid len(messages)")
-	} else if forward.SendCopy {
+	} else if isSendCopy {
 		for i, dst := range result.Messages {
 			if dst == nil {
 				log.Printf("!!!! dst == nil !!!! result: %#v messages: %#v", result, messages)
@@ -788,8 +793,15 @@ func containsInt64(a []int64, e int64) bool {
 	return false
 }
 
-func checkFilters(formattedText *client.FormattedText, forward config.Forward, isOther *bool) bool {
-	*isOther = false
+type FiltersMode string
+
+const (
+	FiltersOK    FiltersMode = "ok"
+	FiltersCheck FiltersMode = "check"
+	FiltersOther FiltersMode = "other"
+)
+
+func checkFilters(formattedText *client.FormattedText, forward config.Forward) FiltersMode {
 	if formattedText.Text == "" {
 		hasInclude := false
 		if forward.Include != "" {
@@ -802,14 +814,13 @@ func checkFilters(formattedText *client.FormattedText, forward config.Forward, i
 			}
 		}
 		if hasInclude {
-			*isOther = true
-			return false
+			return FiltersOther
 		}
 	} else {
 		if forward.Exclude != "" {
 			re := regexp.MustCompile("(?i)" + forward.Exclude)
 			if re.FindString(formattedText.Text) != "" {
-				return false
+				return FiltersCheck
 			}
 		}
 		hasInclude := false
@@ -817,7 +828,7 @@ func checkFilters(formattedText *client.FormattedText, forward config.Forward, i
 			hasInclude = true
 			re := regexp.MustCompile("(?i)" + forward.Include)
 			if re.FindString(formattedText.Text) != "" {
-				return true
+				return FiltersOK
 			}
 		}
 		for _, includeSubmatch := range forward.IncludeSubmatch {
@@ -828,17 +839,16 @@ func checkFilters(formattedText *client.FormattedText, forward config.Forward, i
 				for _, match := range matches {
 					s := match[includeSubmatch.Group]
 					if contains(includeSubmatch.Match, s) {
-						return true
+						return FiltersOK
 					}
 				}
 			}
 		}
 		if hasInclude {
-			*isOther = true
-			return false
+			return FiltersOther
 		}
 	}
-	return true
+	return FiltersOK
 }
 
 func withBasicAuth(handler http.HandlerFunc) http.HandlerFunc {
@@ -1033,7 +1043,7 @@ func handleMediaAlbum(i int, id client.JsonInt64, cb func(messages []*client.Mes
 	cb(messages)
 }
 
-func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forwardedTo map[int64]bool, otherFns map[int64]func()) {
+func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forwardedTo map[int64]bool, checkFns map[int64]func(), otherFns map[int64]func()) {
 	src := messages[0]
 	formattedText, contentMode := getFormattedText(src.Content)
 	log.Printf("updateNewMessage go ChatId: %d Id: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText.Text != "", src.MediaAlbumId)
@@ -1050,21 +1060,35 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 		log.Print("contentMode == \"\"")
 		return
 	}
-	if checkFilters(formattedText, forward, &isOther) {
+	switch checkFilters(formattedText, forward) {
+	case FiltersOK:
 		isFilters = true
+		checkFns[forward.Check] = nil
 		otherFns[forward.Other] = nil
 		for _, dstChatId := range forward.To {
 			if isNotForwardedTo(forwardedTo, dstChatId) {
-				forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, forward)
+				forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, forward.SendCopy)
 				result = append(result, dstChatId)
 			}
 		}
-	} else if isOther && forward.Other != 0 {
-		_, ok := otherFns[forward.Other]
-		if !ok {
-			otherFns[forward.Other] = func() {
-				dstChatId := forward.Other
-				forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, forward)
+	case FiltersCheck:
+		if forward.Check != 0 {
+			_, ok := checkFns[forward.Check]
+			if !ok {
+				checkFns[forward.Check] = func() {
+					dstChatId := forward.Check
+					forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, false)
+				}
+			}
+		}
+	case FiltersOther:
+		if forward.Other != 0 {
+			_, ok := otherFns[forward.Other]
+			if !ok {
+				otherFns[forward.Other] = func() {
+					dstChatId := forward.Other
+					forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, false)
+				}
 			}
 		}
 	}
@@ -1373,7 +1397,7 @@ func getInputMessageContent(messageContent client.MessageContent, formattedText 
 	return nil
 }
 
-func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dstChatId int64, forward config.Forward) (*client.Messages, error) {
+func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dstChatId int64) (*client.Messages, error) {
 	// srcChatId - не использую, только для дебага
 	contents := make([]client.InputMessageContent, 0)
 	for i, message := range messages {
