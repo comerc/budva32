@@ -1078,7 +1078,8 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 			if !ok {
 				checkFns[forward.Check] = func() {
 					dstChatId := forward.Check
-					forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, false)
+					const isSendCopy = true // обязательно надо копировать, иначе не видно редактирование исходного сообщения
+					forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, isSendCopy)
 				}
 			}
 		}
@@ -1088,7 +1089,8 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 			if !ok {
 				otherFns[forward.Other] = func() {
 					dstChatId := forward.Other
-					forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, false)
+					const isSendCopy = true // обязательно надо копировать, иначе не видно редактирование исходного сообщения
+					forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, isSendCopy)
 				}
 			}
 		}
@@ -1423,8 +1425,7 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 			if source, ok := configData.Sources[src.ChatId]; ok {
 				if containsInt64(source.Sign.For, dstChatId) {
 					addSourceSign(formattedText, source.Sign.Title)
-				}
-				if containsInt64(source.Link.For, dstChatId) {
+				} else if containsInt64(source.Link.For, dstChatId) {
 					addSourceLink(src, formattedText, source.Link.Title)
 				}
 			}
