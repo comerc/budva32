@@ -30,7 +30,7 @@ import (
 )
 
 // TODO: если не удалось обработать какое-либо сообщение, то отправлять его в канал Forward.Error
-// TODO: Вырезать подпись (конфигурируемое)
+// TODO: Вырезать подпись (конфигурируемое) - беда с GetMarkdownText()
 // TODO: синхронизировать закреп сообщений
 // TODO: при копировании теряется картинка (заменяется на предпросмотр ссылки - из-за пробела для ссылки) https://t.me/Full_Time_Trading/46292
 // TODO: если клиент был в офлайне, то каким образом он получает пропущенные сообщения? GetChatHistory() (хотя бот-API досылает пропущенные)
@@ -1405,13 +1405,29 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 	contents := make([]client.InputMessageContent, 0)
 	for i, message := range messages {
 		if message.ForwardInfo != nil {
-			log.Print("message.ForwardInfo")
+			// https://github.com/tdlib/td/issues/1572
+			// TODO: ошибка при пересылке сообщения внутри канала из группы от анонимного админа
+			// настройки: копировальщиком копируются сообщения из channel_1 в channel_2
+			// условие: я выполнил форвард сообщения из группы old_group от анонимного админа в channel_1
+			// промежуточный результат: копировальщик скопировал верно сообщение из channel_1 в channel_2
+			// действие: я выполняю повторный форвард этого же сообщения из channel_1 в channel_1
+			// ошибка: копировальщиком копируется совсем другое сообщение из группы old_group в channel_2
+			// дополнительно: ошибка воспроизводится только для группы old_group (для new_group_0 - getOriginMessage() 404 Not Found)
+			// попытки: очистка БД, group_0 - как публичная
+			// причина: origin.ChatId - ChatId от old_group, но origin.MessageId - MessageId от channel_1 (!!)
 			if origin, ok := message.ForwardInfo.Origin.(*client.MessageForwardOriginChannel); ok {
 				if originMessage, err := getOriginMessage(origin.ChatId, origin.MessageId); err != nil {
 					log.Print("getOriginMessage() ", err)
 				} else {
-					log.Print("originMessage")
-					messages[i] = originMessage
+					targetMessage := message
+					targetFormattedText, _ := getFormattedText(targetMessage.Content)
+					originFormattedText, _ := getFormattedText(originMessage.Content)
+					// workaround for https://github.com/tdlib/td/issues/1572
+					if targetFormattedText.Text == originFormattedText.Text {
+						messages[i] = originMessage
+					} else {
+						log.Print("targetMessage != originMessage")
+					}
 				}
 			}
 		}
@@ -1430,8 +1446,11 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 				}
 			}
 		}
-		// TODO: https://github.com/tdlib/td/issues/1564
 		// if replaceFragments, ok := configData.ReplaceFragments[dstChatId]; ok {
+		// 	// TODO: нужно реализовать свою версию GetMarkdownText,
+		// 	// которая будет обрабатывать вложенные markdown-entities и экранировать markdown-элементы
+		// 	// https://github.com/tdlib/td/issues/1564
+		// 	log.Print(formattedText.Text)
 		// 	if markdownText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{Text: formattedText}); err != nil {
 		// 		log.Print(err)
 		// 	} else {
@@ -1509,12 +1528,6 @@ func getOriginMessage(chatId, messageId int64) (*client.Message, error) {
 	if err != nil {
 		return src, err
 	}
-	// рекурсия лишняя,
-	// т.к. телега не пересылает пересланное сообщение, а сама подменяет на оригинальное;
-	// но где гарантия, что кастомные клиенты работают так же? :)
-	// if src.ForwardInfo != nil {
-	// 	src, err = getOriginMessage(chatId, messageId) // ошибка: тут же будет зацикливание?
-	// }
 	return src, err
 }
 
