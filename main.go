@@ -1446,6 +1446,20 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 				}
 			}
 		}
+		if replaceFragments, ok := configData.ReplaceFragments[dstChatId]; ok {
+			isReplaced := false
+			for _, from := range replaceFragments {
+				re := regexp.MustCompile("(?i)" + from)
+				if re.FindString(formattedText.Text) != "" {
+					isReplaced = true
+					to := strings.Repeat(".", len([]rune(from)))
+					formattedText.Text = re.ReplaceAllString(formattedText.Text, to)
+				}
+			}
+			if isReplaced {
+				log.Print("isReplaced")
+			}
+		}
 		// if replaceFragments, ok := configData.ReplaceFragments[dstChatId]; ok {
 		// 	// TODO: нужно реализовать свою версию GetMarkdownText,
 		// 	// которая будет обрабатывать вложенные markdown-entities и экранировать markdown-элементы
