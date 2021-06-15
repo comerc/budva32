@@ -58,10 +58,7 @@ ReplaceMyselfLinks: # for destinations
     DeleteExternal: true
 ReplaceFragments: # for destinations
   -2222:
-    - "aaaa"
-		- "bbbb"
-    - "cccc"
-		- "dddd"
+    "aaaa": "bbbb" # must be equal len
 Sources:
   -1234:
     Sign:

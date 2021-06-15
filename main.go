@@ -1449,11 +1449,14 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 		}
 		if replaceFragments, ok := configData.ReplaceFragments[dstChatId]; ok {
 			isReplaced := false
-			for _, from := range replaceFragments {
+			for from, to := range replaceFragments {
 				re := regexp.MustCompile("(?i)" + from)
 				if re.FindString(formattedText.Text) != "" {
 					isReplaced = true
-					to := strings.Repeat(".", len([]rune(from)))
+					if len([]rune(from)) != len([]rune(to)) {
+						log.Print("error: len(from) != len(to)")
+						to = strings.Repeat(".", len([]rune(from)))
+					}
 					formattedText.Text = re.ReplaceAllString(formattedText.Text, to)
 				}
 			}
