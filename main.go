@@ -29,6 +29,7 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: редактирование сообщения на попадание в Config.ReplaceFragments
 // TODO: не умеет копировать голосования
 // TODO: если не удалось обработать какое-либо сообщение, то отправлять его в канал Forward.Error
 // TODO: Вырезать подпись (конфигурируемое) - беда с GetMarkdownText()
@@ -1249,7 +1250,7 @@ func getInputThumbnail(thumbnail *client.Thumbnail) *client.InputThumbnail {
 
 func addAnswer(formattedText *client.FormattedText, answer string) {
 	sourceAnswer, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
-		Text: answer,
+		Text: escapeAll(answer),
 		ParseMode: &client.TextParseModeMarkdown{
 			Version: 2,
 		},
@@ -1637,4 +1638,30 @@ func copyFormattedText(formattedText *client.FormattedText) *client.FormattedTex
 
 func strLen(s string) int {
 	return len(utf16.Encode([]rune(s)))
+}
+
+func escapeAll(s string) string {
+	// эскейпит все символы: которые нужны для markdown-разметки
+	a := []string{
+		"_",
+		"*",
+		`\[`,
+		`\]`,
+		"(",
+		")",
+		"~",
+		"`",
+		">",
+		"#",
+		"+",
+		`\-`,
+		"=",
+		"|",
+		"{",
+		"}",
+		".",
+		"!",
+	}
+	re := regexp.MustCompile("[" + strings.Join(a, "|") + "]")
+	return re.ReplaceAllString(s, `\$0`)
 }
