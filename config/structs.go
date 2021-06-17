@@ -5,6 +5,7 @@ const filename = ".config.yml"
 type Config struct {
 	ReplaceMyselfLinks map[int64]ReplaceMyselfLink
 	ReplaceFragments   map[int64]map[string]string
+	ExtractFTTAnswers  []int64
 	Sources            map[int64]Source
 	Reports            Reports
 	Forwards           []Forward

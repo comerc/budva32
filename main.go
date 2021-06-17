@@ -1406,16 +1406,6 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 	contents := make([]client.InputMessageContent, 0)
 	for i, message := range messages {
 		if message.ForwardInfo != nil {
-			// https://github.com/tdlib/td/issues/1572
-			// TODO: ошибка при пересылке сообщения внутри канала из группы от анонимного админа
-			// настройки: копировальщиком копируются сообщения из channel_1 в channel_2
-			// условие: я выполнил форвард сообщения из группы old_group от анонимного админа в channel_1
-			// промежуточный результат: копировальщик скопировал верно сообщение из channel_1 в channel_2
-			// действие: я выполняю повторный форвард этого же сообщения из channel_1 в channel_1
-			// ошибка: копировальщиком копируется совсем другое сообщение из группы old_group в channel_2
-			// дополнительно: ошибка воспроизводится только для группы old_group (для new_group_0 - getOriginMessage() 404 Not Found)
-			// попытки: очистка БД, group_0 - как публичная
-			// причина: origin.ChatId - ChatId от old_group, но origin.MessageId - MessageId от channel_1 (!!)
 			if origin, ok := message.ForwardInfo.Origin.(*client.MessageForwardOriginChannel); ok {
 				if originMessage, err := getOriginMessage(origin.ChatId, origin.MessageId); err != nil {
 					log.Print("getOriginMessage() ", err)
@@ -1494,6 +1484,28 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 		// 		}
 		// 	}
 		// }
+		if containsInt64(configData.ExtractFTTAnswers, src.ChatId) {
+			if src.ReplyMarkup != nil {
+				if a, ok := src.ReplyMarkup.(*client.ReplyMarkupInlineKeyboard); ok {
+					row := a.Rows[0]
+					btn := row[0]
+					if callback, ok := btn.Type.(*client.InlineKeyboardButtonTypeCallback); ok {
+						// tdlibClient.AnswerCallbackQuery(&client.AnswerCallbackQueryRequest{})
+						if answer, err := tdlibClient.GetCallbackQueryAnswer(
+							&client.GetCallbackQueryAnswerRequest{
+								ChatId:    src.ChatId,
+								MessageId: src.Id,
+								Payload:   &client.CallbackQueryPayloadData{Data: callback.Data},
+							},
+						); err != nil {
+							log.Print(err)
+						} else {
+							log.Printf("**** answer: %#v", answer.Text)
+						}
+					}
+				}
+			}
+		}
 		content := getInputMessageContent(src.Content, formattedText, contentMode)
 		if content != nil {
 			contents = append(contents, content)
