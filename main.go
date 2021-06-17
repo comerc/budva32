@@ -1247,6 +1247,30 @@ func getInputThumbnail(thumbnail *client.Thumbnail) *client.InputThumbnail {
 	}
 }
 
+func addAnswer(formattedText *client.FormattedText, answer string) {
+	sourceAnswer, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
+		Text: answer,
+		ParseMode: &client.TextParseModeMarkdown{
+			Version: 2,
+		},
+	})
+	if err != nil {
+		log.Print("ParseTextEntities() ", err)
+	} else {
+		offset := int32(strLen(formattedText.Text))
+		if offset > 0 {
+			formattedText.Text += "\n\n"
+			offset = offset + 2
+		}
+		for _, entity := range sourceAnswer.Entities {
+			entity.Offset += offset
+		}
+		formattedText.Text += sourceAnswer.Text
+		formattedText.Entities = append(formattedText.Entities, sourceAnswer.Entities...)
+	}
+	log.Printf("addAnswer() %#v", formattedText)
+}
+
 func addSourceSign(formattedText *client.FormattedText, title string) {
 	sourceSign, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
 		Text: title,
@@ -1257,7 +1281,7 @@ func addSourceSign(formattedText *client.FormattedText, title string) {
 	if err != nil {
 		log.Print("ParseTextEntities() ", err)
 	} else {
-		offset := int32(len(utf16.Encode([]rune(formattedText.Text))))
+		offset := int32(strLen(formattedText.Text))
 		if offset > 0 {
 			formattedText.Text += "\n\n"
 			offset = offset + 2
@@ -1291,7 +1315,7 @@ func addSourceLink(message *client.Message, formattedText *client.FormattedText,
 			log.Print("ParseTextEntities() ", err)
 		} else {
 			// TODO: тут упало на опросе https://t.me/Full_Time_Trading/40922
-			offset := int32(len(utf16.Encode([]rune(formattedText.Text))))
+			offset := int32(strLen(formattedText.Text))
 			if offset > 0 {
 				formattedText.Text += "\n\n"
 				offset = offset + 2
@@ -1443,9 +1467,9 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 				re := regexp.MustCompile("(?i)" + from)
 				if re.FindString(formattedText.Text) != "" {
 					isReplaced = true
-					if len([]rune(from)) != len([]rune(to)) {
-						log.Print("error: len(from) != len(to)")
-						to = strings.Repeat(".", len([]rune(from)))
+					if strLen(from) != strLen(to) {
+						log.Print("error: strLen(from) != strLen(to)")
+						to = strings.Repeat(".", strLen(from))
 					}
 					formattedText.Text = re.ReplaceAllString(formattedText.Text, to)
 				}
@@ -1484,7 +1508,7 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 		// 		}
 		// 	}
 		// }
-		if containsInt64(configData.ExtractFTTAnswers, src.ChatId) {
+		if containsInt64(configData.Answers, src.ChatId) {
 			if src.ReplyMarkup != nil {
 				if a, ok := src.ReplyMarkup.(*client.ReplyMarkupInlineKeyboard); ok {
 					row := a.Rows[0]
@@ -1500,7 +1524,7 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 						); err != nil {
 							log.Print(err)
 						} else {
-							log.Printf("**** answer: %#v", answer.Text)
+							addAnswer(formattedText, answer.Text)
 						}
 					}
 				}
@@ -1609,4 +1633,8 @@ func replaceMyselfLinks(formattedText *client.FormattedText, srcChatId, dstChatI
 func copyFormattedText(formattedText *client.FormattedText) *client.FormattedText {
 	result := *formattedText
 	return &result
+}
+
+func strLen(s string) int {
+	return len(utf16.Encode([]rune(s)))
 }
