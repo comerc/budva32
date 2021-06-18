@@ -348,17 +348,9 @@ func main() {
 						dstChatId := int64(convertToInt(a[0]))
 						dstId := int64(convertToInt(a[1]))
 						formattedText := copyFormattedText(srcFormattedText)
-						if replaceMyselfLink, ok := configData.ReplaceMyselfLinks[dstChatId]; ok {
-							replaceMyselfLinks(formattedText, src.ChatId, dstChatId, replaceMyselfLink.DeleteExternal)
-						}
-						if source, ok := configData.Sources[src.ChatId]; ok {
-							if containsInt64(source.Sign.For, dstChatId) {
-								addSourceSign(formattedText, source.Sign.Title)
-							}
-							if containsInt64(source.Link.For, dstChatId) {
-								addSourceLink(src, formattedText, source.Link.Title)
-							}
-						}
+						replaceMyselfLinks(formattedText, src.ChatId, dstChatId)
+						addSources(formattedText, src, dstChatId)
+						replaceFragments(formattedText, dstChatId)
 						newMessageId := getNewMessageId(dstChatId, dstId)
 						result = append(result, fmt.Sprintf("toChatMessageId: %s, newMessageId: %d", toChatMessageId, newMessageId))
 						log.Print("contentMode: ", contentMode)
@@ -1432,8 +1424,11 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 	for i, message := range messages {
 		if message.ForwardInfo != nil {
 			if origin, ok := message.ForwardInfo.Origin.(*client.MessageForwardOriginChannel); ok {
-				if originMessage, err := getOriginMessage(origin.ChatId, origin.MessageId); err != nil {
-					log.Print("getOriginMessage() ", err)
+				if originMessage, err := tdlibClient.GetMessage(&client.GetMessageRequest{
+					ChatId:    origin.ChatId,
+					MessageId: origin.MessageId,
+				}); err != nil {
+					log.Print("originMessage ", err)
 				} else {
 					targetMessage := message
 					targetFormattedText, _ := getFormattedText(targetMessage.Content)
@@ -1450,65 +1445,11 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 		src := messages[i] // !!!! for origin message
 		formattedText, contentMode := getFormattedText(src.Content)
 		formattedText = copyFormattedText(formattedText)
-		if replaceMyselfLink, ok := configData.ReplaceMyselfLinks[dstChatId]; ok {
-			replaceMyselfLinks(formattedText, src.ChatId, dstChatId, replaceMyselfLink.DeleteExternal)
-		}
+		replaceMyselfLinks(formattedText, src.ChatId, dstChatId)
 		if i == 0 {
-			if source, ok := configData.Sources[src.ChatId]; ok {
-				if containsInt64(source.Sign.For, dstChatId) {
-					addSourceSign(formattedText, source.Sign.Title)
-				} else if containsInt64(source.Link.For, dstChatId) {
-					addSourceLink(src, formattedText, source.Link.Title)
-				}
-			}
+			addSources(formattedText, src, dstChatId)
 		}
-		if replaceFragments, ok := configData.ReplaceFragments[dstChatId]; ok {
-			isReplaced := false
-			for from, to := range replaceFragments {
-				re := regexp.MustCompile("(?i)" + from)
-				if re.FindString(formattedText.Text) != "" {
-					isReplaced = true
-					if strLen(from) != strLen(to) {
-						log.Print("error: strLen(from) != strLen(to)")
-						to = strings.Repeat(".", strLen(from))
-					}
-					formattedText.Text = re.ReplaceAllString(formattedText.Text, to)
-				}
-			}
-			if isReplaced {
-				log.Print("isReplaced")
-			}
-		}
-		// if replaceFragments, ok := configData.ReplaceFragments[dstChatId]; ok {
-		// 	// TODO: нужно реализовать свою версию GetMarkdownText,
-		// 	// которая будет обрабатывать вложенные markdown-entities и экранировать markdown-элементы
-		// 	// https://github.com/tdlib/td/issues/1564
-		// 	log.Print(formattedText.Text)
-		// 	if markdownText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{Text: formattedText}); err != nil {
-		// 		log.Print(err)
-		// 	} else {
-		// 		log.Print(markdownText.Text)
-		// 		isReplaced := false
-		// 		for from, to := range replaceFragments {
-		// 			re := regexp.MustCompile("(?i)" + from)
-		// 			if re.FindString(markdownText.Text) != "" {
-		// 				isReplaced = true
-		// 				markdownText.Text = re.ReplaceAllString(markdownText.Text, to)
-		// 			}
-		// 		}
-		// 		if isReplaced {
-		// 			var err error
-		// 			formattedText, err = tdlibClient.ParseMarkdown(
-		// 				&client.ParseMarkdownRequest{
-		// 					Text: markdownText,
-		// 				},
-		// 			)
-		// 			if err != nil {
-		// 				log.Print(err)
-		// 			}
-		// 		}
-		// 	}
-		// }
+		replaceFragments(formattedText, dstChatId)
 		if containsInt64(configData.Answers, src.ChatId) {
 			if src.ReplyMarkup != nil {
 				if a, ok := src.ReplyMarkup.(*client.ReplyMarkupInlineKeyboard); ok {
@@ -1575,55 +1516,46 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 	}
 }
 
-func getOriginMessage(chatId, messageId int64) (*client.Message, error) {
-	src, err := tdlibClient.GetMessage(&client.GetMessageRequest{
-		ChatId:    chatId,
-		MessageId: messageId,
-	})
-	if err != nil {
-		return src, err
-	}
-	return src, err
-}
-
-func replaceMyselfLinks(formattedText *client.FormattedText, srcChatId, dstChatId int64, withDeleteExternal bool) {
-	log.Printf("replaceMyselfLinks() srcChatId: %d dstChatId: %d", srcChatId, dstChatId)
-	for _, entity := range formattedText.Entities {
-		if textUrl, ok := entity.Type.(*client.TextEntityTypeTextUrl); ok {
-			if messageLinkInfo, err := tdlibClient.GetMessageLinkInfo(&client.GetMessageLinkInfoRequest{
-				Url: textUrl.Url,
-			}); err != nil {
-				log.Print("GetMessageLinkInfo() ", err)
-			} else {
-				src := messageLinkInfo.Message
-				if src != nil && srcChatId == src.ChatId {
-					isReplaced := false
-					fromChatMessageId := fmt.Sprintf("%d:%d", src.ChatId, src.Id)
-					toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
-					log.Printf("fromChatMessageId: %s toChatMessageIds: %v", fromChatMessageId, toChatMessageIds)
-					var dstId int64 = 0
-					for _, toChatMessageId := range toChatMessageIds {
-						a := strings.Split(toChatMessageId, ":")
-						if int64(convertToInt(a[0])) == dstChatId {
-							dstId = int64(convertToInt(a[1]))
-							break
-						}
-					}
-					if dstId != 0 {
-						if messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
-							ChatId:    dstChatId,
-							MessageId: getNewMessageId(dstChatId, dstId),
-						}); err != nil {
-							log.Print("GetMessageLink() ", err)
-						} else {
-							entity.Type = &client.TextEntityTypeTextUrl{
-								Url: messageLink.Link,
+func replaceMyselfLinks(formattedText *client.FormattedText, srcChatId, dstChatId int64) {
+	if data, ok := configData.ReplaceMyselfLinks[dstChatId]; ok {
+		log.Printf("replaceMyselfLinks() srcChatId: %d dstChatId: %d", srcChatId, dstChatId)
+		for _, entity := range formattedText.Entities {
+			if textUrl, ok := entity.Type.(*client.TextEntityTypeTextUrl); ok {
+				if messageLinkInfo, err := tdlibClient.GetMessageLinkInfo(&client.GetMessageLinkInfoRequest{
+					Url: textUrl.Url,
+				}); err != nil {
+					log.Print("GetMessageLinkInfo() ", err)
+				} else {
+					src := messageLinkInfo.Message
+					if src != nil && srcChatId == src.ChatId {
+						isReplaced := false
+						fromChatMessageId := fmt.Sprintf("%d:%d", src.ChatId, src.Id)
+						toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
+						log.Printf("fromChatMessageId: %s toChatMessageIds: %v", fromChatMessageId, toChatMessageIds)
+						var dstId int64 = 0
+						for _, toChatMessageId := range toChatMessageIds {
+							a := strings.Split(toChatMessageId, ":")
+							if int64(convertToInt(a[0])) == dstChatId {
+								dstId = int64(convertToInt(a[1]))
+								break
 							}
-							isReplaced = true
 						}
-					}
-					if !isReplaced && withDeleteExternal {
-						entity.Type = &client.TextEntityTypeStrikethrough{}
+						if dstId != 0 {
+							if messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
+								ChatId:    dstChatId,
+								MessageId: getNewMessageId(dstChatId, dstId),
+							}); err != nil {
+								log.Print("GetMessageLink() ", err)
+							} else {
+								entity.Type = &client.TextEntityTypeTextUrl{
+									Url: messageLink.Link,
+								}
+								isReplaced = true
+							}
+						}
+						if !isReplaced && data.DeleteExternal {
+							entity.Type = &client.TextEntityTypeStrikethrough{}
+						}
 					}
 				}
 			}
@@ -1664,4 +1596,64 @@ func escapeAll(s string) string {
 	}
 	re := regexp.MustCompile("[" + strings.Join(a, "|") + "]")
 	return re.ReplaceAllString(s, `\$0`)
+}
+
+func replaceFragments(formattedText *client.FormattedText, dstChatId int64) {
+	if data, ok := configData.ReplaceFragments[dstChatId]; ok {
+		isReplaced := false
+		for from, to := range data {
+			re := regexp.MustCompile("(?i)" + from)
+			if re.FindString(formattedText.Text) != "" {
+				isReplaced = true
+				if strLen(from) != strLen(to) {
+					log.Print("error: strLen(from) != strLen(to)")
+					to = strings.Repeat(".", strLen(from))
+				}
+				formattedText.Text = re.ReplaceAllString(formattedText.Text, to)
+			}
+		}
+		if isReplaced {
+			log.Print("isReplaced")
+		}
+	}
+	// if replaceFragments, ok := configData.ReplaceFragments[dstChatId]; ok {
+	// 	// TODO: нужно реализовать свою версию GetMarkdownText,
+	// 	// которая будет обрабатывать вложенные markdown-entities и экранировать markdown-элементы
+	// 	// https://github.com/tdlib/td/issues/1564
+	// 	log.Print(formattedText.Text)
+	// 	if markdownText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{Text: formattedText}); err != nil {
+	// 		log.Print(err)
+	// 	} else {
+	// 		log.Print(markdownText.Text)
+	// 		isReplaced := false
+	// 		for from, to := range replaceFragments {
+	// 			re := regexp.MustCompile("(?i)" + from)
+	// 			if re.FindString(markdownText.Text) != "" {
+	// 				isReplaced = true
+	// 				markdownText.Text = re.ReplaceAllString(markdownText.Text, to)
+	// 			}
+	// 		}
+	// 		if isReplaced {
+	// 			var err error
+	// 			formattedText, err = tdlibClient.ParseMarkdown(
+	// 				&client.ParseMarkdownRequest{
+	// 					Text: markdownText,
+	// 				},
+	// 			)
+	// 			if err != nil {
+	// 				log.Print(err)
+	// 			}
+	// 		}
+	// 	}
+	// }
+}
+
+func addSources(formattedText *client.FormattedText, src *client.Message, dstChatId int64) {
+	if source, ok := configData.Sources[src.ChatId]; ok {
+		if containsInt64(source.Sign.For, dstChatId) {
+			addSourceSign(formattedText, source.Sign.Title)
+		} else if containsInt64(source.Link.For, dstChatId) {
+			addSourceLink(src, formattedText, source.Link.Title)
+		}
+	}
 }
