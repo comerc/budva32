@@ -58,7 +58,7 @@ ReplaceMyselfLinks: # for destinations
     DeleteExternal: true
 ReplaceFragments: # for destinations
   -2222:
-    "aaaa": "bbbb" # must be equal len
+    "aaaa": "bbbb" # must be equal length
 Sources:
   -1234:
     Sign:
@@ -79,8 +79,6 @@ Forwards:
 		To: [-2222]
 	- From: -1234
 		To: [-4321, -8888]
-    Check: -7777 # after exclude
-		Other: -4444 # after include
 		# WithEdited: true # deprecated
 		SendCopy: true
 		Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
@@ -89,6 +87,8 @@ Forwards:
 			- Regexp: '(^|[^A-Z])\$([A-Z]+)'
 				Group: 2
 				Match: ['F', 'GM', 'TSLA']
+Check: -7777 # after exclude
+Other: -4444 # after include
 ```
 
 ## Get chat list with limit (optional)

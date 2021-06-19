@@ -29,7 +29,6 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: редактирование сообщения на попадание в Config.ReplaceFragments
 // TODO: не умеет копировать голосования
 // TODO: если не удалось обработать какое-либо сообщение, то отправлять его в канал Forward.Error
 // TODO: Вырезать подпись (конфигурируемое) - беда с GetMarkdownText()
@@ -250,7 +249,7 @@ func main() {
 				var wg sync.WaitGroup
 				// configData := getConfig()
 				for i, forward := range configData.Forwards {
-					if src.ChatId == forward.From && src.CanBeForwarded {
+					if src.ChatId == forward.From && (forward.SendCopy || src.CanBeForwarded) {
 						isExist = true
 						for _, dstChatId := range forward.To {
 							_, isPresent := forwardedTo[dstChatId]
@@ -343,11 +342,31 @@ func main() {
 					}
 					srcFormattedText, contentMode := getFormattedText(src.Content)
 					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, srcFormattedText != nil && srcFormattedText.Text != "", src.MediaAlbumId)
+					isForwardedToCheck := false
 					for _, toChatMessageId := range toChatMessageIds {
 						a := strings.Split(toChatMessageId, ":")
 						dstChatId := int64(convertToInt(a[0]))
 						dstId := int64(convertToInt(a[1]))
 						formattedText := copyFormattedText(srcFormattedText)
+						hasFiltersCheck := false
+						testChatId := dstChatId
+						for _, forward := range configData.Forwards {
+							if src.ChatId == forward.From && (forward.SendCopy || src.CanBeForwarded) {
+								for _, dstChatId := range forward.To {
+									if testChatId == dstChatId && checkFilters(formattedText, forward) == FiltersCheck {
+										hasFiltersCheck = true
+										if !isForwardedToCheck {
+											isForwardedToCheck = true
+											const isSendCopy = false // обязательно надо форвардить, иначе невидно текущего сообщения
+											forwardNewMessages(tdlibClient, []*client.Message{src}, src.ChatId, configData.Check, isSendCopy)
+										}
+									}
+								}
+							}
+						}
+						if hasFiltersCheck {
+							continue
+						}
 						replaceMyselfLinks(formattedText, src.ChatId, dstChatId)
 						addSources(formattedText, src, dstChatId)
 						replaceFragments(formattedText, dstChatId)
@@ -1058,8 +1077,8 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 	switch checkFilters(formattedText, forward) {
 	case FiltersOK:
 		isFilters = true
-		checkFns[forward.Check] = nil
-		otherFns[forward.Other] = nil
+		// checkFns[configData.Check] = nil // !! не надо сбрасывать
+		otherFns[configData.Other] = nil
 		for _, dstChatId := range forward.To {
 			if isNotForwardedTo(forwardedTo, dstChatId) {
 				forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, forward.SendCopy)
@@ -1067,24 +1086,22 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 			}
 		}
 	case FiltersCheck:
-		if forward.Check != 0 {
-			_, ok := checkFns[forward.Check]
+		if configData.Check != 0 {
+			_, ok := checkFns[configData.Check]
 			if !ok {
-				checkFns[forward.Check] = func() {
-					dstChatId := forward.Check
-					const isSendCopy = true // обязательно надо копировать, иначе не видно редактирование исходного сообщения
-					forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, isSendCopy)
+				checkFns[configData.Check] = func() {
+					const isSendCopy = false // обязательно надо форвардить, иначе невидно текущего сообщения
+					forwardNewMessages(tdlibClient, messages, src.ChatId, configData.Check, isSendCopy)
 				}
 			}
 		}
 	case FiltersOther:
-		if forward.Other != 0 {
-			_, ok := otherFns[forward.Other]
+		if configData.Other != 0 {
+			_, ok := otherFns[configData.Other]
 			if !ok {
-				otherFns[forward.Other] = func() {
-					dstChatId := forward.Other
-					const isSendCopy = true // обязательно надо копировать, иначе не видно редактирование исходного сообщения
-					forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, isSendCopy)
+				otherFns[configData.Other] = func() {
+					const isSendCopy = true // обязательно надо копировать, иначе невидно редактирование исходного сообщения
+					forwardNewMessages(tdlibClient, messages, src.ChatId, configData.Other, isSendCopy)
 				}
 			}
 		}

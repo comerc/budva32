@@ -9,6 +9,8 @@ type Config struct {
 	Sources            map[int64]Source
 	Reports            Reports
 	Forwards           []Forward
+	Check              int64
+	Other              int64
 }
 
 type ReplaceMyselfLink struct {
@@ -38,8 +40,6 @@ type Reports struct {
 type Forward struct {
 	From            int64
 	To              []int64
-	Check           int64
-	Other           int64
 	Exclude         string
 	Include         string
 	IncludeSubmatch []IncludeSubmatch
