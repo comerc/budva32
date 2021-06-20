@@ -1078,7 +1078,7 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 	case FiltersOK:
 		isFilters = true
 		// checkFns[configData.Check] = nil // !! не надо сбрасывать
-		otherFns[configData.Other] = nil
+		otherFns[forward.Other] = nil
 		for _, dstChatId := range forward.To {
 			if isNotForwardedTo(forwardedTo, dstChatId) {
 				forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, forward.SendCopy)
@@ -1096,12 +1096,12 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 			}
 		}
 	case FiltersOther:
-		if configData.Other != 0 {
-			_, ok := otherFns[configData.Other]
+		if forward.Other != 0 {
+			_, ok := otherFns[forward.Other]
 			if !ok {
-				otherFns[configData.Other] = func() {
+				otherFns[forward.Other] = func() {
 					const isSendCopy = true // обязательно надо копировать, иначе невидно редактирование исходного сообщения
-					forwardNewMessages(tdlibClient, messages, src.ChatId, configData.Other, isSendCopy)
+					forwardNewMessages(tdlibClient, messages, src.ChatId, forward.Other, isSendCopy)
 				}
 			}
 		}

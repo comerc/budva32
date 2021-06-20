@@ -10,7 +10,6 @@ type Config struct {
 	Reports            Reports
 	Forwards           []Forward
 	Check              int64
-	Other              int64
 }
 
 type ReplaceMyselfLink struct {
@@ -44,6 +43,7 @@ type Forward struct {
 	Include         string
 	IncludeSubmatch []IncludeSubmatch
 	SendCopy        bool
+	Other           int64
 }
 
 type IncludeSubmatch struct {

@@ -87,8 +87,8 @@ Forwards:
 			- Regexp: '(^|[^A-Z])\$([A-Z]+)'
 				Group: 2
 				Match: ['F', 'GM', 'TSLA']
+		Other: -4444 # after include
 Check: -7777 # after exclude
-Other: -4444 # after include
 ```
 
 ## Get chat list with limit (optional)
