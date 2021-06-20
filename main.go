@@ -344,7 +344,7 @@ func main() {
 					}
 					srcFormattedText, contentMode := getFormattedText(src.Content)
 					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, srcFormattedText != nil && srcFormattedText.Text != "", src.MediaAlbumId)
-					isForwardedToCheck := false
+					checkFns := make(map[int64]func())
 					for _, toChatMessageId := range toChatMessageIds {
 						a := strings.Split(toChatMessageId, ":")
 						dstChatId := int64(convertToInt(a[0]))
@@ -353,14 +353,17 @@ func main() {
 						hasFiltersCheck := false
 						testChatId := dstChatId
 						for _, forward := range configData.Forwards {
+							forward := forward // !!!! copy for go routine
 							if src.ChatId == forward.From && (forward.SendCopy || src.CanBeForwarded) {
 								for _, dstChatId := range forward.To {
 									if testChatId == dstChatId && checkFilters(formattedText, forward) == FiltersCheck {
 										hasFiltersCheck = true
-										if !isForwardedToCheck {
-											isForwardedToCheck = true
-											const isSendCopy = false // обязательно надо форвардить, иначе невидно текущего сообщения
-											forwardNewMessages(tdlibClient, []*client.Message{src}, src.ChatId, configData.Check, isSendCopy)
+										_, ok := checkFns[forward.Check]
+										if !ok {
+											checkFns[forward.Check] = func() {
+												const isSendCopy = false // обязательно надо форвардить, иначе невидно текущего сообщения
+												forwardNewMessages(tdlibClient, []*client.Message{src}, src.ChatId, forward.Check, isSendCopy)
+											}
 										}
 									}
 								}
@@ -416,6 +419,16 @@ func main() {
 							log.Printf("EditMessageCaption() dst: %#v", dst)
 						}
 					}
+					go func() {
+						for check, fn := range checkFns {
+							if fn == nil {
+								log.Printf("check: %d nil", check)
+								continue
+							}
+							log.Printf("check: %d fn()", check)
+							fn()
+						}
+					}()
 				}
 				queue.PushBack(fn)
 			} else if updateMessageSendSucceeded, ok := update.(*client.UpdateMessageSendSucceeded); ok {
@@ -1081,7 +1094,7 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 	switch checkFilters(formattedText, forward) {
 	case FiltersOK:
 		isFilters = true
-		// checkFns[configData.Check] = nil // !! не надо сбрасывать
+		// checkFns[forward.Check] = nil // !! не надо сбрасывать - хочу проверить сообщение, даже если где-то прошли фильтры
 		otherFns[forward.Other] = nil
 		for _, dstChatId := range forward.To {
 			if isNotForwardedTo(forwardedTo, dstChatId) {
@@ -1090,12 +1103,12 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 			}
 		}
 	case FiltersCheck:
-		if configData.Check != 0 {
-			_, ok := checkFns[configData.Check]
+		if forward.Check != 0 {
+			_, ok := checkFns[forward.Check]
 			if !ok {
-				checkFns[configData.Check] = func() {
+				checkFns[forward.Check] = func() {
 					const isSendCopy = false // обязательно надо форвардить, иначе невидно текущего сообщения
-					forwardNewMessages(tdlibClient, messages, src.ChatId, configData.Check, isSendCopy)
+					forwardNewMessages(tdlibClient, messages, src.ChatId, forward.Check, isSendCopy)
 				}
 			}
 		}
