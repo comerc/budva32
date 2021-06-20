@@ -29,6 +29,8 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: флаг в конфиге для запрета пересылки документов
+// TODO: для Exclude не только текст проверять, но и entities со ссылкой
 // TODO: не умеет копировать голосования
 // TODO: если не удалось обработать какое-либо сообщение, то отправлять его в канал Forward.Error
 // TODO: Вырезать подпись (конфигурируемое) - беда с GetMarkdownText()
@@ -367,9 +369,11 @@ func main() {
 						if hasFiltersCheck {
 							continue
 						}
+						addAnswer(formattedText, src)
 						replaceMyselfLinks(formattedText, src.ChatId, dstChatId)
-						addSources(formattedText, src, dstChatId)
 						replaceFragments(formattedText, dstChatId)
+						// resetEntities(formattedText, dstChatId)
+						addSources(formattedText, src, dstChatId)
 						newMessageId := getNewMessageId(dstChatId, dstId)
 						result = append(result, fmt.Sprintf("toChatMessageId: %s, newMessageId: %d", toChatMessageId, newMessageId))
 						log.Print("contentMode: ", contentMode)
@@ -1257,28 +1261,49 @@ func getInputThumbnail(thumbnail *client.Thumbnail) *client.InputThumbnail {
 	}
 }
 
-func addAnswer(formattedText *client.FormattedText, answer string) {
-	sourceAnswer, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
-		Text: escapeAll(answer),
-		ParseMode: &client.TextParseModeMarkdown{
-			Version: 2,
-		},
-	})
-	if err != nil {
-		log.Print("ParseTextEntities() ", err)
-	} else {
-		offset := int32(strLen(formattedText.Text))
-		if offset > 0 {
-			formattedText.Text += "\n\n"
-			offset = offset + 2
+func addAnswer(formattedText *client.FormattedText, src *client.Message) {
+	if containsInt64(configData.Answers, src.ChatId) {
+		if src.ReplyMarkup != nil {
+			if a, ok := src.ReplyMarkup.(*client.ReplyMarkupInlineKeyboard); ok {
+				row := a.Rows[0]
+				btn := row[0]
+				if callback, ok := btn.Type.(*client.InlineKeyboardButtonTypeCallback); ok {
+					// tdlibClient.AnswerCallbackQuery(&client.AnswerCallbackQueryRequest{})
+					if answer, err := tdlibClient.GetCallbackQueryAnswer(
+						&client.GetCallbackQueryAnswerRequest{
+							ChatId:    src.ChatId,
+							MessageId: src.Id,
+							Payload:   &client.CallbackQueryPayloadData{Data: callback.Data},
+						},
+					); err != nil {
+						log.Print(err)
+					} else {
+						sourceAnswer, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
+							Text: escapeAll(answer.Text),
+							ParseMode: &client.TextParseModeMarkdown{
+								Version: 2,
+							},
+						})
+						if err != nil {
+							log.Print("ParseTextEntities() ", err)
+						} else {
+							offset := int32(strLen(formattedText.Text))
+							if offset > 0 {
+								formattedText.Text += "\n\n"
+								offset = offset + 2
+							}
+							for _, entity := range sourceAnswer.Entities {
+								entity.Offset += offset
+							}
+							formattedText.Text += sourceAnswer.Text
+							formattedText.Entities = append(formattedText.Entities, sourceAnswer.Entities...)
+						}
+						log.Printf("addAnswer() %#v", formattedText)
+					}
+				}
+			}
 		}
-		for _, entity := range sourceAnswer.Entities {
-			entity.Offset += offset
-		}
-		formattedText.Text += sourceAnswer.Text
-		formattedText.Entities = append(formattedText.Entities, sourceAnswer.Entities...)
 	}
-	log.Printf("addAnswer() %#v", formattedText)
 }
 
 func addSourceSign(formattedText *client.FormattedText, title string) {
@@ -1462,32 +1487,12 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 		src := messages[i] // !!!! for origin message
 		formattedText, contentMode := getFormattedText(src.Content)
 		formattedText = copyFormattedText(formattedText)
+		addAnswer(formattedText, src)
 		replaceMyselfLinks(formattedText, src.ChatId, dstChatId)
+		replaceFragments(formattedText, dstChatId)
+		// resetEntities(formattedText, dstChatId)
 		if i == 0 {
 			addSources(formattedText, src, dstChatId)
-		}
-		replaceFragments(formattedText, dstChatId)
-		if containsInt64(configData.Answers, src.ChatId) {
-			if src.ReplyMarkup != nil {
-				if a, ok := src.ReplyMarkup.(*client.ReplyMarkupInlineKeyboard); ok {
-					row := a.Rows[0]
-					btn := row[0]
-					if callback, ok := btn.Type.(*client.InlineKeyboardButtonTypeCallback); ok {
-						// tdlibClient.AnswerCallbackQuery(&client.AnswerCallbackQueryRequest{})
-						if answer, err := tdlibClient.GetCallbackQueryAnswer(
-							&client.GetCallbackQueryAnswerRequest{
-								ChatId:    src.ChatId,
-								MessageId: src.Id,
-								Payload:   &client.CallbackQueryPayloadData{Data: callback.Data},
-							},
-						); err != nil {
-							log.Print(err)
-						} else {
-							addAnswer(formattedText, answer.Text)
-						}
-					}
-				}
-			}
 		}
 		content := getInputMessageContent(src.Content, formattedText, contentMode)
 		if content != nil {
@@ -1615,6 +1620,30 @@ func escapeAll(s string) string {
 	return re.ReplaceAllString(s, `\$0`)
 }
 
+func addSources(formattedText *client.FormattedText, src *client.Message, dstChatId int64) {
+	if source, ok := configData.Sources[src.ChatId]; ok {
+		if containsInt64(source.Sign.For, dstChatId) {
+			addSourceSign(formattedText, source.Sign.Title)
+		} else if containsInt64(source.Link.For, dstChatId) {
+			addSourceLink(src, formattedText, source.Link.Title)
+		}
+	}
+}
+
+// func resetEntities(formattedText *client.FormattedText, dstChatId int64) {
+//	// withResetEntities := containsInt64(configData.ResetEntities, dstChatId)
+// 	if result, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
+// 		Text: escapeAll(formattedText.Text),
+// 		ParseMode: &client.TextParseModeMarkdown{
+// 			Version: 2,
+// 		},
+// 	}); err != nil {
+// 		log.Print(err)
+// 	} else {
+// 		*formattedText = *result
+// 	}
+// }
+
 func replaceFragments(formattedText *client.FormattedText, dstChatId int64) {
 	if data, ok := configData.ReplaceFragments[dstChatId]; ok {
 		isReplaced := false
@@ -1633,44 +1662,38 @@ func replaceFragments(formattedText *client.FormattedText, dstChatId int64) {
 			log.Print("isReplaced")
 		}
 	}
-	// if replaceFragments, ok := configData.ReplaceFragments[dstChatId]; ok {
-	// 	// TODO: нужно реализовать свою версию GetMarkdownText,
-	// 	// которая будет обрабатывать вложенные markdown-entities и экранировать markdown-элементы
-	// 	// https://github.com/tdlib/td/issues/1564
-	// 	log.Print(formattedText.Text)
-	// 	if markdownText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{Text: formattedText}); err != nil {
-	// 		log.Print(err)
-	// 	} else {
-	// 		log.Print(markdownText.Text)
-	// 		isReplaced := false
-	// 		for from, to := range replaceFragments {
-	// 			re := regexp.MustCompile("(?i)" + from)
-	// 			if re.FindString(markdownText.Text) != "" {
-	// 				isReplaced = true
-	// 				markdownText.Text = re.ReplaceAllString(markdownText.Text, to)
-	// 			}
-	// 		}
-	// 		if isReplaced {
-	// 			var err error
-	// 			formattedText, err = tdlibClient.ParseMarkdown(
-	// 				&client.ParseMarkdownRequest{
-	// 					Text: markdownText,
-	// 				},
-	// 			)
-	// 			if err != nil {
-	// 				log.Print(err)
-	// 			}
-	// 		}
-	// 	}
-	// }
 }
 
-func addSources(formattedText *client.FormattedText, src *client.Message, dstChatId int64) {
-	if source, ok := configData.Sources[src.ChatId]; ok {
-		if containsInt64(source.Sign.For, dstChatId) {
-			addSourceSign(formattedText, source.Sign.Title)
-		} else if containsInt64(source.Link.For, dstChatId) {
-			addSourceLink(src, formattedText, source.Link.Title)
-		}
-	}
-}
+// func replaceFragments2(formattedText *client.FormattedText, dstChatId int64) {
+// 	if replaceFragments, ok := configData.ReplaceFragments[dstChatId]; ok {
+// 		// TODO: нужно реализовать свою версию GetMarkdownText,
+// 		// которая будет обрабатывать вложенные markdown-entities и экранировать markdown-элементы
+// 		// https://github.com/tdlib/td/issues/1564
+// 		log.Print(formattedText.Text)
+// 		if markdownText, err := tdlibClient.GetMarkdownText(&client.GetMarkdownTextRequest{Text: formattedText}); err != nil {
+// 			log.Print(err)
+// 		} else {
+// 			log.Print(markdownText.Text)
+// 			isReplaced := false
+// 			for from, to := range replaceFragments {
+// 				re := regexp.MustCompile("(?i)" + from)
+// 				if re.FindString(markdownText.Text) != "" {
+// 					isReplaced = true
+// 					markdownText.Text = re.ReplaceAllString(markdownText.Text, to)
+// 				}
+// 			}
+// 			if isReplaced {
+// 				var err error
+// 				result, err := tdlibClient.ParseMarkdown(
+// 					&client.ParseMarkdownRequest{
+// 						Text: markdownText,
+// 					},
+// 				)
+// 				if err != nil {
+// 					log.Print(err)
+// 				}
+// 				*formattedText = *result
+// 			}
+// 		}
+// 	}
+// }
