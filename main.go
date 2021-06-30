@@ -29,6 +29,7 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: tradews - самые быстрые отчёты?
 // TODO: флаг в конфиге для запрета пересылки документов
 // TODO: для Exclude не только текст проверять, но и entities со ссылкой
 // TODO: не умеет копировать голосования
