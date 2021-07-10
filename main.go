@@ -245,6 +245,10 @@ func main() {
 		if update.GetClass() == client.ClassUpdate {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
 				src := updateNewMessage.Message
+				if _, contentMode := getFormattedText(src.Content); contentMode == "" {
+					log.Print("contentMode == \"\"")
+					continue
+				}
 				isExist := false
 				checkFns := make(map[int64]func())
 				otherFns := make(map[int64]func())
@@ -890,8 +894,7 @@ func withBasicAuth(handler http.HandlerFunc) http.HandlerFunc {
 			subtle.ConstantTimeCompare([]byte(user), []byte(os.Getenv("BUDVA32_USER"))) != 1 ||
 			subtle.ConstantTimeCompare([]byte(pass), []byte(os.Getenv("BUDVA32_PASS"))) != 1 {
 			w.Header().Set("WWW-Authenticate", `Basic realm="Please enter your username and password"`)
-			w.WriteHeader(401)
-			w.Write([]byte("You are unauthorized to access the application.\n"))
+			http.Error(w, "You are unauthorized to access the application.\n", http.StatusUnauthorized)
 			return
 		}
 		handler(w, r)
@@ -947,8 +950,7 @@ func getFaviconHandler(w http.ResponseWriter, r *http.Request) {
 func getPingHandler(w http.ResponseWriter, r *http.Request) {
 	ret, err := time.Now().UTC().MarshalJSON()
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -963,8 +965,7 @@ func getChatsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	allChats, err := getChatList(tdlibClient, limit)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	retMap := make(map[string]interface{})
@@ -976,8 +977,7 @@ func getChatsHandler(w http.ResponseWriter, r *http.Request) {
 	retMap["chatList"] = chatList
 	ret, err := json.Marshal(retMap)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
