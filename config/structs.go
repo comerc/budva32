@@ -42,8 +42,8 @@ type Forward struct {
 	Include         string
 	IncludeSubmatch []IncludeSubmatch
 	SendCopy        bool
-	Check           int64
-	Other           int64
+	Check           int64 // то, что нашёл Exclude
+	Other           int64 // то, что отсек Exclude
 }
 
 type IncludeSubmatch struct {

@@ -29,6 +29,7 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: кнопка премодерации сообщений
 // TODO: tradews - самые быстрые отчёты?
 // TODO: флаг в конфиге для запрета пересылки документов
 // TODO: для Exclude не только текст проверять, но и entities со ссылкой
@@ -1531,10 +1532,31 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 		}
 	}
 	if len(contents) == 1 {
+		// s := "https://ya.ru"
+		// Rows := make([][]*client.InlineKeyboardButton, 0)
+		// Btns := make([]*client.InlineKeyboardButton, 0)
+		// Btns = append(Btns, &client.InlineKeyboardButton{
+		// 	Text: "Go", Type: &client.InlineKeyboardButtonTypeCallback{Data: []byte(s)},
+		// })
+		// Rows = append(Rows, Btns)
 		message, err := tdlibClient.SendMessage(&client.SendMessageRequest{
 			ChatId:              dstChatId,
 			InputMessageContent: contents[0],
 			ReplyToMessageId:    replyToMessageId,
+			// ReplyMarkup: func() client.ReplyMarkup {
+			// 	if true {
+			// 		log.Print("**** ReplyMarkup")
+			// 		s := "https://ya.ru"
+			// 		Rows := make([][]*client.InlineKeyboardButton, 0)
+			// 		Btns := make([]*client.InlineKeyboardButton, 0)
+			// 		Btns = append(Btns, &client.InlineKeyboardButton{
+			// 			Text: "Go", Type: &client.InlineKeyboardButtonTypeCallback{Data: []byte(s)},
+			// 		})
+			// 		Rows = append(Rows, Btns)
+			// 		return &client.ReplyMarkupInlineKeyboard{Rows: Rows}
+			// 	}
+			// 	return nil
+			// }(),
 		})
 		if err != nil {
 			return nil, err
