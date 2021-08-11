@@ -36,12 +36,15 @@ type Reports struct {
 }
 
 type Forward struct {
+	Key             string // TODO: проверка на уникальность при чтении конфига, нельзя использовать ":,"
 	From            int64
 	To              []int64
 	Exclude         string
 	Include         string
 	IncludeSubmatch []IncludeSubmatch
 	SendCopy        bool
+	CopyOnce        bool
+	Indelible       bool
 	Check           int64 // то, что нашёл Exclude
 	Other           int64 // то, что отсек Exclude
 }

@@ -75,12 +75,16 @@ Reports:
       -8888,
     ]
 Forwards:
-	- From: -1111
+	- Key: id1
+		From: -1111
 		To: [-2222]
-	- From: -1234
+	- Key: id2
+		From: -1234
 		To: [-4321, -8888]
 		# WithEdited: true # deprecated
 		SendCopy: true
+		CopyOnce: true
+		Indelible: true
 		Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
 		Include: '#ARK|#Идеи_покупок|#ОТЧЕТЫ'
 		IncludeSubmatch:

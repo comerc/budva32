@@ -29,6 +29,8 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: проставить Forward.Key в конфиге и добавить их в БД - setCopiedMessageId()
+// TODO: фильтровать выборку @stoxxxxx
 // TODO: кнопка премодерации сообщений
 // TODO: tradews - самые быстрые отчёты?
 // TODO: флаг в конфиге для запрета пересылки документов
@@ -352,32 +354,50 @@ func main() {
 					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, srcFormattedText != nil && srcFormattedText.Text != "", src.MediaAlbumId)
 					checkFns := make(map[int64]func())
 					for _, toChatMessageId := range toChatMessageIds {
-						a := strings.Split(toChatMessageId, ":")
+						a := strings.Split(toChatMessageId+":", ":") // TODO: убрать +":" после конвертации значений в БД
 						dstChatId := int64(convertToInt(a[0]))
 						dstId := int64(convertToInt(a[1]))
+						forwardKey := a[2]
 						formattedText := copyFormattedText(srcFormattedText)
-						hasFiltersCheck := false
-						testChatId := dstChatId
-						for _, forward := range configData.Forwards {
-							forward := forward // !!!! copy for go routine
-							if src.ChatId == forward.From && (forward.SendCopy || src.CanBeForwarded) {
-								for _, dstChatId := range forward.To {
-									if testChatId == dstChatId && checkFilters(formattedText, forward) == FiltersCheck {
-										hasFiltersCheck = true
-										_, ok := checkFns[forward.Check]
-										if !ok {
-											checkFns[forward.Check] = func() {
-												const isSendCopy = false // обязательно надо форвардить, иначе невидно текущего сообщения
-												forwardNewMessages(tdlibClient, []*client.Message{src}, src.ChatId, forward.Check, isSendCopy)
-											}
-										}
+						if forward, ok := getForward(forwardKey); ok {
+							if forward.CopyOnce {
+								continue
+							}
+							if forward.SendCopy || src.CanBeForwarded && checkFilters(formattedText, forward) == FiltersCheck {
+								_, ok := checkFns[forward.Check]
+								if !ok {
+									checkFns[forward.Check] = func() {
+										const isSendCopy = false // обязательно надо форвардить, иначе невидно текущего сообщения
+										forwardNewMessages(tdlibClient, []*client.Message{src}, src.ChatId, forward.Check, isSendCopy, forward.Key)
 									}
 								}
+								continue
 							}
 						}
-						if hasFiltersCheck {
-							continue
-						}
+						// hasFiltersCheck := false
+						// testChatId := dstChatId
+						// for _, forward := range configData.Forwards {
+						// 	forward := forward // !!!! copy for go routine
+						// 	if src.ChatId == forward.From && (forward.SendCopy || src.CanBeForwarded) {
+						// 		for _, dstChatId := range forward.To {
+						// 			if testChatId == dstChatId {
+						// 				if checkFilters(formattedText, forward) == FiltersCheck {
+						// 					hasFiltersCheck = true
+						// 					_, ok := checkFns[forward.Check]
+						// 					if !ok {
+						// 						checkFns[forward.Check] = func() {
+						// 							const isSendCopy = false // обязательно надо форвардить, иначе невидно текущего сообщения
+						// 							forwardNewMessages(tdlibClient, []*client.Message{src}, src.ChatId, forward.Check, isSendCopy)
+						// 						}
+						// 					}
+						// 				}
+						// 			}
+						// 		}
+						// 	}
+						// }
+						// if hasFiltersCheck {
+						// 	continue
+						// }
 						addAnswer(formattedText, src)
 						replaceMyselfLinks(formattedText, src.ChatId, dstChatId)
 						replaceFragments(formattedText, dstChatId)
@@ -399,9 +419,13 @@ func main() {
 							}
 							log.Printf("EditMessageText() dst: %#v", dst)
 						case ContentModeAnimation:
+							fallthrough
 						case ContentModeDocument:
+							fallthrough
 						case ContentModeAudio:
+							fallthrough
 						case ContentModeVideo:
+							fallthrough
 						case ContentModePhoto:
 							content := getInputMessageContent(src.Content, formattedText, contentMode)
 							dst, err := tdlibClient.EditMessageMedia(&client.EditMessageMediaRequest{
@@ -454,11 +478,16 @@ func main() {
 					for _, messageId := range messageIds {
 						fromChatMessageId := fmt.Sprintf("%d:%d", chatId, messageId)
 						toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
-						deleteCopiedMessageIds(fromChatMessageId)
 						for _, toChatMessageId := range toChatMessageIds {
-							a := strings.Split(toChatMessageId, ":")
+							a := strings.Split(toChatMessageId+":", ":") // TODO: убрать +":" после конвертации значений в БД
 							dstChatId := int64(convertToInt(a[0]))
 							dstId := int64(convertToInt(a[1]))
+							forwardKey := a[2]
+							if forward, ok := getForward(forwardKey); ok {
+								if forward.Indelible {
+									continue
+								}
+							}
 							newMessageId := getNewMessageId(dstChatId, dstId)
 							_, err := tdlibClient.DeleteMessages(&client.DeleteMessagesRequest{
 								ChatId:     dstChatId,
@@ -471,6 +500,7 @@ func main() {
 							}
 							result = append(result, fmt.Sprintf("%d:%d", dstChatId, newMessageId))
 						}
+						deleteCopiedMessageIds(fromChatMessageId)
 					}
 				}
 				queue.PushBack(fn)
@@ -699,7 +729,7 @@ func setLastForwarded(chatId int64) {
 	lastForwarded[chatId] = time.Now()
 }
 
-func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dstChatId int64, isSendCopy bool) {
+func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dstChatId int64, isSendCopy bool, forwardKey string) {
 	log.Printf("forwardNewMessages() srcChatId: %d dstChatId: %d", srcChatId, dstChatId)
 	diff := getLastForwardedDiff(dstChatId)
 	if diff < waitForForward {
@@ -748,7 +778,7 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 			}
 			dstId := dst.Id
 			src := messages[i] // !!!! for origin message
-			toChatMessageId := fmt.Sprintf("%d:%d", dstChatId, dstId)
+			toChatMessageId := fmt.Sprintf("%d:%d:%s", dstChatId, dstId, forwardKey)
 			fromChatMessageId := fmt.Sprintf("%d:%d", src.ChatId, src.Id)
 			setCopiedMessageId(fromChatMessageId, toChatMessageId)
 		}
@@ -1076,6 +1106,8 @@ func handleMediaAlbum(i int, id client.JsonInt64, cb func(messages []*client.Mes
 	cb(messages)
 }
 
+const emptyForwardKey = ""
+
 func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forwardedTo map[int64]bool, checkFns map[int64]func(), otherFns map[int64]func()) {
 	src := messages[0]
 	formattedText, contentMode := getFormattedText(src.Content)
@@ -1100,7 +1132,7 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 		otherFns[forward.Other] = nil
 		for _, dstChatId := range forward.To {
 			if isNotForwardedTo(forwardedTo, dstChatId) {
-				forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, forward.SendCopy)
+				forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, forward.SendCopy, forward.Key)
 				result = append(result, dstChatId)
 			}
 		}
@@ -1110,7 +1142,7 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 			if !ok {
 				checkFns[forward.Check] = func() {
 					const isSendCopy = false // обязательно надо форвардить, иначе невидно текущего сообщения
-					forwardNewMessages(tdlibClient, messages, src.ChatId, forward.Check, isSendCopy)
+					forwardNewMessages(tdlibClient, messages, src.ChatId, forward.Check, isSendCopy, emptyForwardKey)
 				}
 			}
 		}
@@ -1120,7 +1152,7 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 			if !ok {
 				otherFns[forward.Other] = func() {
 					const isSendCopy = true // обязательно надо копировать, иначе невидно редактирование исходного сообщения
-					forwardNewMessages(tdlibClient, messages, src.ChatId, forward.Other, isSendCopy)
+					forwardNewMessages(tdlibClient, messages, src.ChatId, forward.Other, isSendCopy, emptyForwardKey)
 				}
 			}
 		}
@@ -1733,3 +1765,12 @@ func replaceFragments(formattedText *client.FormattedText, dstChatId int64) {
 // 		}
 // 	}
 // }
+
+func getForward(forwardKey string) (config.Forward, bool) {
+	for _, forward := range configData.Forwards {
+		if forward.Key == forwardKey {
+			return forward, true
+		}
+	}
+	return config.Forward{}, false
+}
