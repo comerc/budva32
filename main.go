@@ -29,6 +29,9 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: убрать ContentMode; но нужно избавляться от formattedText в пользу Message.Content
+// TODO: @usa100cks #Статистика
+// TODO: ротация .log
 // TODO: проставить Forward.Key в конфиге и добавить их в БД - setCopiedMessageId()
 // TODO: фильтровать выборку @stoxxxxx
 // TODO: кнопка премодерации сообщений
@@ -351,7 +354,7 @@ func main() {
 						return
 					}
 					srcFormattedText, contentMode := getFormattedText(src.Content)
-					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, srcFormattedText != nil && srcFormattedText.Text != "", src.MediaAlbumId)
+					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, srcFormattedText.Text != "", src.MediaAlbumId)
 					checkFns := make(map[int64]func())
 					for _, toChatMessageId := range toChatMessageIds {
 						a := strings.Split(toChatMessageId+":", ":") // TODO: убрать +":" после конвертации значений в БД
@@ -836,7 +839,7 @@ func getFormattedText(messageContent client.MessageContent) (*client.FormattedTe
 		// client.MessageGame
 		// client.MessagePoll
 		// client.MessageInvoice
-		formattedText = &client.FormattedText{}
+		formattedText = &client.FormattedText{Entities: make([]*client.TextEntity, 0)}
 		contentMode = ""
 	}
 	return formattedText, contentMode
