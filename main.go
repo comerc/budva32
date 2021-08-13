@@ -29,10 +29,10 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: заменить на fmt.Errorf()
 // TODO: убрать ContentMode; но нужно избавляться от formattedText в пользу Message.Content
 // TODO: @usa100cks #Статистика
 // TODO: ротация .log
-// TODO: проставить Forward.Key в конфиге и добавить их в БД - setCopiedMessageId()
 // TODO: фильтровать выборку @stoxxxxx
 // TODO: кнопка премодерации сообщений
 // TODO: tradews - самые быстрые отчёты?
@@ -261,7 +261,12 @@ func main() {
 				forwardedTo := make(map[int64]bool)
 				var wg sync.WaitGroup
 				// configData := getConfig()
-				for i, forward := range configData.Forwards {
+				for forwardKey, forward := range configData.Forwards {
+					// !!!! copy for go routine
+					var (
+						forwardKey = forwardKey
+						forward    = forward
+					)
 					if src.ChatId == forward.From && (forward.SendCopy || src.CanBeForwarded) {
 						isExist = true
 						for _, dstChatId := range forward.To {
@@ -273,29 +278,27 @@ func main() {
 						if src.MediaAlbumId == 0 {
 							wg.Add(1)
 							log.Print("wg.Add(1) for src.Id: ", src.Id)
-							forward := forward // !!!! copy for go routine
 							fn := func() {
 								defer func() {
 									wg.Done()
 									log.Print("wg.Done() for src.Id: ", src.Id)
 								}()
-								doUpdateNewMessage([]*client.Message{src}, forward, forwardedTo, checkFns, otherFns)
+								doUpdateNewMessage([]*client.Message{src}, forwardKey, forward, forwardedTo, checkFns, otherFns)
 							}
 							queue.PushBack(fn)
 						} else {
-							isFirstMessage := addMessageToMediaAlbum(i, src)
+							isFirstMessage := addMessageToMediaAlbum(forwardKey, src)
 							if isFirstMessage {
 								wg.Add(1)
 								log.Print("wg.Add(1) for src.Id: ", src.Id)
-								forward := forward // !!!! copy for go routine
-								go handleMediaAlbum(i, src.MediaAlbumId,
+								go handleMediaAlbum(forwardKey, src.MediaAlbumId,
 									func(messages []*client.Message) {
 										fn := func() {
 											defer func() {
 												wg.Done()
 												log.Print("wg.Done() for src.Id: ", src.Id)
 											}()
-											doUpdateNewMessage(messages, forward, forwardedTo, checkFns, otherFns)
+											doUpdateNewMessage(messages, forwardKey, forward, forwardedTo, checkFns, otherFns)
 										}
 										queue.PushBack(fn)
 									})
@@ -357,12 +360,12 @@ func main() {
 					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, srcFormattedText.Text != "", src.MediaAlbumId)
 					checkFns := make(map[int64]func())
 					for _, toChatMessageId := range toChatMessageIds {
-						a := strings.Split(toChatMessageId+":", ":") // TODO: убрать +":" после конвертации значений в БД
-						dstChatId := int64(convertToInt(a[0]))
-						dstId := int64(convertToInt(a[1]))
-						forwardKey := a[2]
+						a := strings.Split(toChatMessageId, ":")
+						forwardKey := a[0]
+						dstChatId := int64(convertToInt(a[1]))
+						dstId := int64(convertToInt(a[2]))
 						formattedText := copyFormattedText(srcFormattedText)
-						if forward, ok := getForward(forwardKey); ok {
+						if forward, ok := configData.Forwards[forwardKey]; ok {
 							if forward.CopyOnce {
 								continue
 							}
@@ -371,11 +374,13 @@ func main() {
 								if !ok {
 									checkFns[forward.Check] = func() {
 										const isSendCopy = false // обязательно надо форвардить, иначе невидно текущего сообщения
-										forwardNewMessages(tdlibClient, []*client.Message{src}, src.ChatId, forward.Check, isSendCopy, forward.Key)
+										forwardNewMessages(tdlibClient, []*client.Message{src}, src.ChatId, forward.Check, isSendCopy, forwardKey)
 									}
 								}
 								continue
 							}
+						} else {
+							continue
 						}
 						// hasFiltersCheck := false
 						// testChatId := dstChatId
@@ -482,14 +487,16 @@ func main() {
 						fromChatMessageId := fmt.Sprintf("%d:%d", chatId, messageId)
 						toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
 						for _, toChatMessageId := range toChatMessageIds {
-							a := strings.Split(toChatMessageId+":", ":") // TODO: убрать +":" после конвертации значений в БД
-							dstChatId := int64(convertToInt(a[0]))
-							dstId := int64(convertToInt(a[1]))
-							forwardKey := a[2]
-							if forward, ok := getForward(forwardKey); ok {
+							a := strings.Split(toChatMessageId, ":")
+							forwardKey := a[0]
+							dstChatId := int64(convertToInt(a[1]))
+							dstId := int64(convertToInt(a[2]))
+							if forward, ok := configData.Forwards[forwardKey]; ok {
 								if forward.Indelible {
 									continue
 								}
+							} else {
+								continue
 							}
 							newMessageId := getNewMessageId(dstChatId, dstId)
 							_, err := tdlibClient.DeleteMessages(&client.DeleteMessagesRequest{
@@ -585,9 +592,11 @@ func convertToInt(s string) int {
 
 // ****
 
-// type ChatMessageId string // ChatId:MessageId
+// type ForwardKey string
+// type FromChatMessageId string // copiedMessageIdsPrefix:ChatId:MessageId
+// type ToChatMessageId string // ForwardKey:ChatId:MessageId
 
-// var copiedMessageIds = make(map[ChatMessageId][]ChatMessageId) // [From][]To
+// var copiedMessageIds = make(map[FromChatMessageId][]ToChatMessageId)
 
 const copiedMessageIdsPrefix = "copiedMsgIds"
 
@@ -781,7 +790,7 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 			}
 			dstId := dst.Id
 			src := messages[i] // !!!! for origin message
-			toChatMessageId := fmt.Sprintf("%d:%d:%s", dstChatId, dstId, forwardKey)
+			toChatMessageId := fmt.Sprintf("%s:%d:%d", forwardKey, dstChatId, dstId)
 			fromChatMessageId := fmt.Sprintf("%d:%d", src.ChatId, src.Id)
 			setCopiedMessageId(fromChatMessageId, toChatMessageId)
 		}
@@ -1066,11 +1075,11 @@ type MediaAlbum struct {
 	lastReceived time.Time
 }
 
-var mediaAlbums = make(map[string]MediaAlbum) // int : client.JsonInt64
+var mediaAlbums = make(map[string]MediaAlbum)
 
 // https://github.com/tdlib/td/issues/1482
-func addMessageToMediaAlbum(i int, message *client.Message) bool {
-	key := fmt.Sprintf("%d:%d", i, message.MediaAlbumId)
+func addMessageToMediaAlbum(forwardKey string, message *client.Message) bool {
+	key := fmt.Sprintf("%s:%d", forwardKey, message.MediaAlbumId)
 	item, ok := mediaAlbums[key]
 	if !ok {
 		item = MediaAlbum{}
@@ -1097,12 +1106,12 @@ func getMediaAlbumMessages(key string) []*client.Message {
 
 const waitForMediaAlbum = 3 * time.Second
 
-func handleMediaAlbum(i int, id client.JsonInt64, cb func(messages []*client.Message)) {
-	key := fmt.Sprintf("%d:%d", i, id)
+func handleMediaAlbum(forwardKey string, id client.JsonInt64, cb func(messages []*client.Message)) {
+	key := fmt.Sprintf("%s:%d", forwardKey, id)
 	diff := getMediaAlbumLastReceivedDiff(key)
 	if diff < waitForMediaAlbum {
 		time.Sleep(waitForMediaAlbum - diff)
-		handleMediaAlbum(i, id, cb)
+		handleMediaAlbum(forwardKey, id, cb)
 		return
 	}
 	messages := getMediaAlbumMessages(key)
@@ -1111,7 +1120,7 @@ func handleMediaAlbum(i int, id client.JsonInt64, cb func(messages []*client.Mes
 
 const emptyForwardKey = ""
 
-func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forwardedTo map[int64]bool, checkFns map[int64]func(), otherFns map[int64]func()) {
+func doUpdateNewMessage(messages []*client.Message, forwardKey string, forward config.Forward, forwardedTo map[int64]bool, checkFns map[int64]func(), otherFns map[int64]func()) {
 	src := messages[0]
 	formattedText, contentMode := getFormattedText(src.Content)
 	log.Printf("updateNewMessage go ChatId: %d Id: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText.Text != "", src.MediaAlbumId)
@@ -1135,7 +1144,7 @@ func doUpdateNewMessage(messages []*client.Message, forward config.Forward, forw
 		otherFns[forward.Other] = nil
 		for _, dstChatId := range forward.To {
 			if isNotForwardedTo(forwardedTo, dstChatId) {
-				forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, forward.SendCopy, forward.Key)
+				forwardNewMessages(tdlibClient, messages, src.ChatId, dstChatId, forward.SendCopy, forwardKey)
 				result = append(result, dstChatId)
 			}
 		}
@@ -1557,8 +1566,8 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 		var dstId int64 = 0
 		for _, toChatMessageId := range toChatMessageIds {
 			a := strings.Split(toChatMessageId, ":")
-			if int64(convertToInt(a[0])) == dstChatId {
-				dstId = int64(convertToInt(a[1]))
+			if int64(convertToInt(a[1])) == dstChatId {
+				dstId = int64(convertToInt(a[2]))
 				break
 			}
 		}
@@ -1628,8 +1637,8 @@ func replaceMyselfLinks(formattedText *client.FormattedText, srcChatId, dstChatI
 						var dstId int64 = 0
 						for _, toChatMessageId := range toChatMessageIds {
 							a := strings.Split(toChatMessageId, ":")
-							if int64(convertToInt(a[0])) == dstChatId {
-								dstId = int64(convertToInt(a[1]))
+							if int64(convertToInt(a[1])) == dstChatId {
+								dstId = int64(convertToInt(a[2]))
 								break
 							}
 						}
@@ -1768,12 +1777,3 @@ func replaceFragments(formattedText *client.FormattedText, dstChatId int64) {
 // 		}
 // 	}
 // }
-
-func getForward(forwardKey string) (config.Forward, bool) {
-	for _, forward := range configData.Forwards {
-		if forward.Key == forwardKey {
-			return forward, true
-		}
-	}
-	return config.Forward{}, false
-}

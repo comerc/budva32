@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/ghodss/yaml"
@@ -49,7 +50,13 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	for _, forward := range configData.Forwards {
+	re := regexp.MustCompile("[:,]")
+
+	for forwardKey, forward := range configData.Forwards {
+		if re.FindString(forwardKey) != "" {
+			err := fmt.Errorf("cannot use [:,] as Config.Forwards key in %s", forwardKey)
+			return nil, err
+		}
 		for _, dscChatId := range forward.To {
 			if forward.From == dscChatId {
 				err := fmt.Errorf("destination Id cannot be equal to source Id %d", dscChatId)

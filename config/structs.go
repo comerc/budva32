@@ -3,12 +3,12 @@ package config
 const filename = ".config.yml"
 
 type Config struct {
-	Answers            []int64
+	Answers            []int64 // TODO: map[int64]struct{}
 	ReplaceMyselfLinks map[int64]ReplaceMyselfLink
 	ReplaceFragments   map[int64]map[string]string
 	Sources            map[int64]Source
 	Reports            Reports
-	Forwards           []Forward
+	Forwards           map[string]Forward
 }
 
 type ReplaceMyselfLink struct {
@@ -22,23 +22,22 @@ type Source struct {
 
 type Sign struct {
 	Title string
-	For   []int64
+	For   []int64 // TODO: map[int64]struct{}
 }
 
 type Link struct {
 	Title string
-	For   []int64
+	For   []int64 // TODO: map[int64]struct{}
 }
 
 type Reports struct {
 	Template string
-	For      []int64
+	For      []int64 // TODO: map[int64]struct{}
 }
 
 type Forward struct {
-	Key             string // TODO: проверка на уникальность при чтении конфига, нельзя использовать ":,"
 	From            int64
-	To              []int64
+	To              []int64 // TODO: map[int64]struct{}
 	Exclude         string
 	Include         string
 	IncludeSubmatch []IncludeSubmatch
