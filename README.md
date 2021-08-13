@@ -201,3 +201,20 @@ case #ARK
 Check -
 Other +
 Forward -
+
+## План тестирования
+
+- new
+- edit
+- delete
+- MediaAlbum
+- SendCopy
+- CopyOnce
+- Indelible
+- Filters Mode
+- IncludeSubmatch
+- ReplaceMyselfLinks + DeleteExternal
+- ReplaceFragments
+- Sources + Sign
+- Sources + Link
+- Answers
