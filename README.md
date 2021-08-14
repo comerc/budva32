@@ -203,19 +203,19 @@ Forward -
 
 ## План тестирования
 
-- forward
-- copy
-- copy + copy
-- edit sync
-- delete sync
-- MediaAlbum
-- SendCopy
-- CopyOnce
-- Indelible
-- Filters Mode
-- IncludeSubmatch
-- ReplaceMyselfLinks + DeleteExternal
-- ReplaceFragments
-- Sources + Sign
-- Sources + Link
-- Answers
+- [x] forward
+- [ ] copy
+- [ ] copy + copy
+- [ ] edit sync
+- [ ] delete sync
+- [ ] MediaAlbum
+- [ ] SendCopy
+- [ ] CopyOnce
+- [ ] Indelible
+- [ ] Filters Mode
+- [ ] IncludeSubmatch
+- [ ] ReplaceMyselfLinks + DeleteExternal
+- [ ] ReplaceFragments
+- [ ] Sources + Sign
+- [ ] Sources + Link
+- [ ] Answers
