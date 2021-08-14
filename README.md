@@ -201,21 +201,20 @@ Check -
 Other +
 Forward -
 
-## План тестирования
+## Test-plan
 
-- [x] forward
-- [ ] copy
-- [ ] copy + copy
-- [ ] edit sync
-- [ ] delete sync
-- [ ] MediaAlbum
-- [ ] SendCopy
-- [ ] CopyOnce
-- [ ] Indelible
-- [ ] Filters Mode
-- [ ] IncludeSubmatch
-- [ ] ReplaceMyselfLinks + DeleteExternal
-- [ ] ReplaceFragments
-- [ ] Sources + Sign
-- [ ] Sources + Link
-- [ ] Answers
+- Text
+  - [x] SendCopy (or forward)
+  - [x] CopyOnce (edit sync)
+  - [x] Indelible (delete sync)
+  - [x] Filters Mode (see above)
+  - [x] IncludeSubmatch
+  - [x] ReplaceMyselfLinks + DeleteExternal
+  - [x] ReplaceFragments
+  - [x] Sources.Sign
+  - [x] Sources.Link
+  - [ ] Answers
+- MediaAlbum
+  - [x] SendCopy (or forward)
+  - [x] CopyOnce (edit sync)
+  - [x] Indelible (delete sync)
