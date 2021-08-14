@@ -75,16 +75,15 @@ Reports:
       -8888,
     ]
 Forwards:
-	- Key: id1
+	"id1":
 		From: -1111
 		To: [-2222]
-	- Key: id2
+	"id2":
 		From: -1234
 		To: [-4321, -8888]
-		# WithEdited: true # deprecated
 		SendCopy: true
-		CopyOnce: true
-		Indelible: true
+		CopyOnce: true # wo edit-sync
+		Indelible: true # wo delete-sync
 		Exclude: 'Крамер|#УТРЕННИЙ_ОБЗОР'
 		Include: '#ARK|#Идеи_покупок|#ОТЧЕТЫ'
 		IncludeSubmatch:
@@ -206,6 +205,7 @@ Forward -
 
 - forward
 - copy
+- copy + copy
 - edit sync
 - delete sync
 - MediaAlbum

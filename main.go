@@ -247,6 +247,27 @@ func main() {
 
 	go runQueue()
 
+	// to20210813()
+	// dstChatId := -4321
+	// dstId := 1234 // !! tmpMessageId
+	// newMessageId := getNewMessageId(int64(dstChatId), int64(dstId))
+	// message, err := tdlibClient.GetMessage(&client.GetMessageRequest{
+	// 	ChatId:    int64(dstChatId),
+	// 	MessageId: newMessageId,
+	// })
+	// if err != nil {
+	// 	log.Print(err)
+	// } else {
+	// 	formattedText, _ := getFormattedText(message.Content)
+	// 	log.Print(formattedText.Text)
+	// }
+	// for update := range listener.Updates {
+	// 	_ = update
+	// }
+	// if true {
+	// 	return
+	// }
+
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
@@ -363,7 +384,7 @@ func main() {
 						a := strings.Split(toChatMessageId, ":")
 						forwardKey := a[0]
 						dstChatId := int64(convertToInt(a[1]))
-						dstId := int64(convertToInt(a[2]))
+						tmpMessageId := int64(convertToInt(a[2]))
 						formattedText := copyFormattedText(srcFormattedText)
 						if forward, ok := configData.Forwards[forwardKey]; ok {
 							if forward.CopyOnce {
@@ -411,7 +432,7 @@ func main() {
 						replaceFragments(formattedText, dstChatId)
 						// resetEntities(formattedText, dstChatId)
 						addSources(formattedText, src, dstChatId)
-						newMessageId := getNewMessageId(dstChatId, dstId)
+						newMessageId := getNewMessageId(dstChatId, tmpMessageId)
 						result = append(result, fmt.Sprintf("toChatMessageId: %s, newMessageId: %d", toChatMessageId, newMessageId))
 						log.Print("contentMode: ", contentMode)
 						switch contentMode {
@@ -490,7 +511,7 @@ func main() {
 							a := strings.Split(toChatMessageId, ":")
 							forwardKey := a[0]
 							dstChatId := int64(convertToInt(a[1]))
-							dstId := int64(convertToInt(a[2]))
+							tmpMessageId := int64(convertToInt(a[2]))
 							if forward, ok := configData.Forwards[forwardKey]; ok {
 								if forward.Indelible {
 									continue
@@ -498,7 +519,7 @@ func main() {
 							} else {
 								continue
 							}
-							newMessageId := getNewMessageId(dstChatId, dstId)
+							newMessageId := getNewMessageId(dstChatId, tmpMessageId)
 							_, err := tdlibClient.DeleteMessages(&client.DeleteMessagesRequest{
 								ChatId:     dstChatId,
 								MessageIds: []int64{newMessageId},
@@ -508,6 +529,7 @@ func main() {
 								log.Print("DeleteMessages() ", err)
 								continue
 							}
+							deleteNewMessageId(dstChatId, tmpMessageId)
 							result = append(result, fmt.Sprintf("%d:%d", dstChatId, newMessageId))
 						}
 						deleteCopiedMessageIds(fromChatMessageId)
@@ -592,9 +614,8 @@ func convertToInt(s string) int {
 
 // ****
 
-// type ForwardKey string
-// type FromChatMessageId string // copiedMessageIdsPrefix:ChatId:MessageId
-// type ToChatMessageId string // ForwardKey:ChatId:MessageId
+// type FromChatMessageId string // copiedMessageIdsPrefix:srcChatId:srcMessageId
+// type ToChatMessageId string // forwardKey:dstChatId:tmpMessageId // !! tmp
 
 // var copiedMessageIds = make(map[FromChatMessageId][]ToChatMessageId)
 
@@ -722,6 +743,17 @@ func getNewMessageId(chatId, tmpMessageId int64) int64 {
 	log.Printf("getNewMessageId() key: %d:%d val: %d", chatId, tmpMessageId, newMessageId)
 	return newMessageId
 	// return newMessageIds[ChatMessageId(fmt.Sprintf("%d:%d", chatId, tmpMessageId))]
+}
+
+func deleteNewMessageId(chatId, tmpMessageId int64) {
+	key := []byte(fmt.Sprintf("%s:%d:%d", newMessageIdPrefix, chatId, tmpMessageId))
+	err := badgerDB.Update(func(txn *badger.Txn) error {
+		return txn.Delete(key)
+	})
+	if err != nil {
+		log.Print(err)
+	}
+	log.Printf("deleteNewMessageId() key: %d:%d", chatId, tmpMessageId)
 }
 
 var (
@@ -1262,7 +1294,19 @@ func getByDB(key []byte) []byte {
 	return val
 }
 
-// func deleteByDB(key []byte) {
+// func setForDB(key []byte, val []byte) {
+// 	err := badgerDB.Update(func(txn *badger.Txn) error {
+// 		err := txn.Set(key, val)
+// 		return err
+// 	})
+// 	if err != nil {
+// 		log.Printf("setByDB() key: %s err: %s ", string(key), err)
+// 		// } else {
+// 		// log.Printf("setByDB() key: %s val: %s", string(key), string(val))
+// 	}
+// }
+
+// func deleteForDB(key []byte) {
 // 	err := badgerDB.Update(func(txn *badger.Txn) error {
 // 		return txn.Delete(key)
 // 	})
@@ -1561,16 +1605,16 @@ func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message,
 	if src.ReplyToMessageId > 0 && src.ReplyInChatId == src.ChatId {
 		fromChatMessageId := fmt.Sprintf("%d:%d", src.ReplyInChatId, src.ReplyToMessageId)
 		toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
-		var dstId int64 = 0
+		var tmpMessageId int64 = 0
 		for _, toChatMessageId := range toChatMessageIds {
 			a := strings.Split(toChatMessageId, ":")
 			if int64(convertToInt(a[1])) == dstChatId {
-				dstId = int64(convertToInt(a[2]))
+				tmpMessageId = int64(convertToInt(a[2]))
 				break
 			}
 		}
-		if dstId != 0 {
-			replyToMessageId = getNewMessageId(dstChatId, dstId)
+		if tmpMessageId != 0 {
+			replyToMessageId = getNewMessageId(dstChatId, tmpMessageId)
 		}
 	}
 	if len(contents) == 1 {
@@ -1632,18 +1676,18 @@ func replaceMyselfLinks(formattedText *client.FormattedText, srcChatId, dstChatI
 						fromChatMessageId := fmt.Sprintf("%d:%d", src.ChatId, src.Id)
 						toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
 						log.Printf("fromChatMessageId: %s toChatMessageIds: %v", fromChatMessageId, toChatMessageIds)
-						var dstId int64 = 0
+						var tmpMessageId int64 = 0
 						for _, toChatMessageId := range toChatMessageIds {
 							a := strings.Split(toChatMessageId, ":")
 							if int64(convertToInt(a[1])) == dstChatId {
-								dstId = int64(convertToInt(a[2]))
+								tmpMessageId = int64(convertToInt(a[2]))
 								break
 							}
 						}
-						if dstId != 0 {
+						if tmpMessageId != 0 {
 							if messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
 								ChatId:    dstChatId,
-								MessageId: getNewMessageId(dstChatId, dstId),
+								MessageId: getNewMessageId(dstChatId, tmpMessageId),
 							}); err != nil {
 								log.Print("GetMessageLink() ", err)
 							} else {
