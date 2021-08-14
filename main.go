@@ -369,7 +369,7 @@ func main() {
 							if forward.CopyOnce {
 								continue
 							}
-							if forward.SendCopy || src.CanBeForwarded && checkFilters(formattedText, forward) == FiltersCheck {
+							if (forward.SendCopy || src.CanBeForwarded) && checkFilters(formattedText, forward) == FiltersCheck {
 								_, ok := checkFns[forward.Check]
 								if !ok {
 									checkFns[forward.Check] = func() {
@@ -1118,8 +1118,6 @@ func handleMediaAlbum(forwardKey string, id client.JsonInt64, cb func(messages [
 	cb(messages)
 }
 
-const emptyForwardKey = ""
-
 func doUpdateNewMessage(messages []*client.Message, forwardKey string, forward config.Forward, forwardedTo map[int64]bool, checkFns map[int64]func(), otherFns map[int64]func()) {
 	src := messages[0]
 	formattedText, contentMode := getFormattedText(src.Content)
@@ -1154,7 +1152,7 @@ func doUpdateNewMessage(messages []*client.Message, forwardKey string, forward c
 			if !ok {
 				checkFns[forward.Check] = func() {
 					const isSendCopy = false // обязательно надо форвардить, иначе невидно текущего сообщения
-					forwardNewMessages(tdlibClient, messages, src.ChatId, forward.Check, isSendCopy, emptyForwardKey)
+					forwardNewMessages(tdlibClient, messages, src.ChatId, forward.Check, isSendCopy, forwardKey)
 				}
 			}
 		}
@@ -1164,7 +1162,7 @@ func doUpdateNewMessage(messages []*client.Message, forwardKey string, forward c
 			if !ok {
 				otherFns[forward.Other] = func() {
 					const isSendCopy = true // обязательно надо копировать, иначе невидно редактирование исходного сообщения
-					forwardNewMessages(tdlibClient, messages, src.ChatId, forward.Other, isSendCopy, emptyForwardKey)
+					forwardNewMessages(tdlibClient, messages, src.ChatId, forward.Other, isSendCopy, forwardKey)
 				}
 			}
 		}
