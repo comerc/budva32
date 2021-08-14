@@ -21,9 +21,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	utf16 "unicode/utf16"
 
 	"github.com/comerc/budva32/config"
+	"github.com/comerc/budva32/utils"
 	"github.com/dgraph-io/badger"
 	"github.com/joho/godotenv"
 	"github.com/zelenin/go-tdlib/client"
@@ -121,7 +121,7 @@ func main() {
 	go config.Watch(func() {
 		tmp, err := config.Load()
 		if err != nil {
-			log.Printf("Can't initialise config: %s", err)
+			log.Fatalf("Can't initialise config: %s", err)
 			return
 		}
 		// configMu.Lock()
@@ -1388,7 +1388,7 @@ func addAnswer(formattedText *client.FormattedText, src *client.Message) {
 						if err != nil {
 							log.Print("ParseTextEntities() ", err)
 						} else {
-							offset := int32(strLen(formattedText.Text))
+							offset := int32(utils.StrLen(formattedText.Text))
 							if offset > 0 {
 								formattedText.Text += "\n\n"
 								offset = offset + 2
@@ -1417,7 +1417,7 @@ func addSourceSign(formattedText *client.FormattedText, title string) {
 	if err != nil {
 		log.Print("ParseTextEntities() ", err)
 	} else {
-		offset := int32(strLen(formattedText.Text))
+		offset := int32(utils.StrLen(formattedText.Text))
 		if offset > 0 {
 			formattedText.Text += "\n\n"
 			offset = offset + 2
@@ -1451,7 +1451,7 @@ func addSourceLink(message *client.Message, formattedText *client.FormattedText,
 			log.Print("ParseTextEntities() ", err)
 		} else {
 			// TODO: тут упало на опросе https://t.me/Full_Time_Trading/40922
-			offset := int32(strLen(formattedText.Text))
+			offset := int32(utils.StrLen(formattedText.Text))
 			if offset > 0 {
 				formattedText.Text += "\n\n"
 				offset = offset + 2
@@ -1712,10 +1712,6 @@ func copyFormattedText(formattedText *client.FormattedText) *client.FormattedTex
 	return &result
 }
 
-func strLen(s string) int {
-	return len(utf16.Encode([]rune(s)))
-}
-
 func escapeAll(s string) string {
 	// эскейпит все символы: которые нужны для markdown-разметки
 	a := []string{
@@ -1773,10 +1769,11 @@ func replaceFragments(formattedText *client.FormattedText, dstChatId int64) {
 			re := regexp.MustCompile("(?i)" + from)
 			if re.FindString(formattedText.Text) != "" {
 				isReplaced = true
-				if strLen(from) != strLen(to) {
-					log.Print("error: strLen(from) != strLen(to)")
-					to = strings.Repeat(".", strLen(from))
-				}
+				// вынес в конфиг
+				// if utils.StrLen(from) != utils.StrLen(to) {
+				// 	log.Print("error: utils.StrLen(from) != utils.StrLen(to)")
+				// 	to = strings.Repeat(".", utils.StrLen(from))
+				// }
 				formattedText.Text = re.ReplaceAllString(formattedText.Text, to)
 			}
 		}

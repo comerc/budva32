@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/comerc/budva32/utils"
 	"github.com/ghodss/yaml"
 	"github.com/radovskyb/watcher"
 )
@@ -48,6 +49,15 @@ func Load() (*Config, error) {
 	if err != nil {
 		log.Printf("Failed to unmarshal file %s: %s", path, err)
 		return nil, err
+	}
+
+	for _, v := range configData.ReplaceFragments {
+		for from, to := range v {
+			if utils.StrLen(from) != utils.StrLen(to) {
+				err := fmt.Errorf(`strLen("%s") != strLen("%s")`, from, to)
+				return nil, err
+			}
+		}
 	}
 
 	re := regexp.MustCompile("[:,]")
