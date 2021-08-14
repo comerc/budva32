@@ -91,8 +91,8 @@ Forwards:
 			- Regexp: '(^|[^A-Z])\$([A-Z]+)'
 				Group: 2
 				Match: ['F', 'GM', 'TSLA']
-		Other: -4444 # after include
-		Check: -7777 # after exclude
+		Other: -4444 # after include (copy only)
+		Check: -7777 # after exclude (forward only)
 ```
 
 ## Get chat list with limit (optional)
@@ -204,9 +204,10 @@ Forward -
 
 ## План тестирования
 
-- new
-- edit
-- delete
+- forward
+- copy
+- edit sync
+- delete sync
 - MediaAlbum
 - SendCopy
 - CopyOnce
