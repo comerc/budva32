@@ -181,7 +181,7 @@ func getMessageLink(srcChatId, srcMessageId int) {
 - [wcsiu/telegram-client-demo](https://github.com/wcsiu/telegram-client-demo) + [article](https://wcsiu.github.io/2020/12/26/create-a-telegram-client-in-go-with-docker.html)
 - [Создание и развертывание ретранслятора Telegram каналов, используя Python и Heroku](https://vc.ru/dev/158757-sozdanie-i-razvertyvanie-retranslyatora-telegram-kanalov-ispolzuya-python-i-heroku)
 
-## Filters Mode
+## Filters Mode for Forward...
 
 Exclude #COIN
 Include #TSLA
@@ -189,32 +189,33 @@ Include #TSLA
 case #COIN
 Check +
 Other -
-Forward -
+To -
 
 case #TSLA
 Check -
 Other -
-Forward +
+To +
 
 case #ARK
 Check -
 Other +
-Forward -
+To -
 
-## Test-plan
+## Test-plan for Config...
 
 - Text
-  - [x] SendCopy (or forward)
-  - [x] CopyOnce (edit sync)
-  - [x] Indelible (delete sync)
+  - [x] Forward.SendCopy (or forward)
+  - [x] and edit sync for double copy
+  - [x] Forward.CopyOnce (edit sync)
+  - [x] Forward.Indelible (delete sync)
   - [x] Filters Mode (see above)
-  - [x] IncludeSubmatch
+  - [x] Forward.IncludeSubmatch
   - [x] ReplaceMyselfLinks + DeleteExternal
   - [x] ReplaceFragments
   - [x] Sources.Sign
   - [x] Sources.Link
   - [ ] Answers
 - MediaAlbum
-  - [x] SendCopy (or forward)
-  - [x] CopyOnce (edit sync)
-  - [x] Indelible (delete sync)
+  - [x] Forward.SendCopy (or forward)
+  - [x] Forward.CopyOnce (edit sync)
+  - [x] Forward.Indelible (delete sync)

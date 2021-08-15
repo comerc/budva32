@@ -699,7 +699,7 @@ func getCopiedMessageIds(fromChatMessageId string) []string {
 	return toChatMessageIds
 }
 
-// var newMessageIds = make(map[ChatMessageId]int64)
+// var newMessageIds = make(map[string]int64)
 
 const newMessageIdPrefix = "newMsgId"
 
