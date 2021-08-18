@@ -29,6 +29,11 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: может отказаться вовсе от checkFns & otherFns? они выполняются вне queue, в итоге можно обработать удаление раньше, чем addSourceLink()
+// например: сообщение без SourceLink и продублировалось https://t.me/teslaholics2/12427
+// TODO: setNewMessageId() + setTmpMessageId() & deleteNewMessageId() + deleteTmpMessageId() - в одну транзакцию
+// TODO: копировать ReplyMarkup для редактирования сообщения (а не только для добавления нового сообщения)
+// TODO: для перевалочных каналов, куда выполняется системный forward (Copy2TSLA и ShuntTo) - не нужен setCopiedMessageId() && setNewMessageId()
 // TODO: заменить на fmt.Errorf()
 // TODO: убрать ContentMode; но нужно избавляться от formattedText в пользу Message.Content
 // TODO: @usa100cks #Статистика
@@ -133,6 +138,7 @@ func main() {
 		http.HandleFunc("/favicon.ico", getFaviconHandler)
 		http.HandleFunc("/", withBasicAuth(withAuthentiation(getChatsHandler)))
 		http.HandleFunc("/ping", getPingHandler)
+		http.HandleFunc("/answer", getAnswerHandler)
 		host := getIP()
 		port := ":" + port
 		fmt.Println("Web-server is running: http://" + host + port)
@@ -272,6 +278,11 @@ func main() {
 		if update.GetClass() == client.ClassUpdate {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
 				src := updateNewMessage.Message
+				if src.IsOutgoing {
+					// TODO: исследование - может такое быть? проверить лог
+					log.Printf("**** updateNewMessage src.IsOutgoing %#v", src)
+					continue // !!
+				}
 				if _, contentMode := getFormattedText(src.Content); contentMode == "" {
 					log.Print("contentMode == \"\"")
 					continue
@@ -377,6 +388,10 @@ func main() {
 						log.Print("GetMessage() src ", err)
 						return
 					}
+					if src.IsOutgoing {
+						// TODO: исследование - может такое быть? проверить лог
+						log.Print("**** updateMessageEdited src.IsOutgoing")
+					}
 					srcFormattedText, contentMode := getFormattedText(src.Content)
 					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, srcFormattedText.Text != "", src.MediaAlbumId)
 					checkFns := make(map[int64]func())
@@ -477,6 +492,11 @@ func main() {
 							}
 							log.Printf("EditMessageCaption() dst: %#v", dst)
 						}
+						if _, ok := getReplyMarkupData(src); ok {
+							setAnswerMessageId(dstChatId, tmpMessageId, fromChatMessageId)
+						} else {
+							deleteAnswerMessageId(dstChatId, tmpMessageId)
+						}
 					}
 					go func() {
 						for check, fn := range checkFns {
@@ -493,7 +513,13 @@ func main() {
 			} else if updateMessageSendSucceeded, ok := update.(*client.UpdateMessageSendSucceeded); ok {
 				log.Print("updateMessageSendSucceeded go")
 				message := updateMessageSendSucceeded.Message
-				setNewMessageId(message.ChatId, updateMessageSendSucceeded.OldMessageId, message.Id)
+				if message.IsOutgoing {
+					// TODO: исследование - может такое быть? проверить лог
+					log.Print("**** updateMessageSendSucceeded message.IsOutgoing")
+				}
+				tmpMessageId := updateMessageSendSucceeded.OldMessageId
+				setNewMessageId(message.ChatId, tmpMessageId, message.Id)
+				setTmpMessageId(message.ChatId, message.Id, tmpMessageId)
 				log.Print("updateMessageSendSucceeded ok")
 			} else if updateDeleteMessages, ok := update.(*client.UpdateDeleteMessages); ok && updateDeleteMessages.IsPermanent {
 				chatId := updateDeleteMessages.ChatId
@@ -529,8 +555,10 @@ func main() {
 								log.Print("DeleteMessages() ", err)
 								continue
 							}
+							deleteTmpMessageId(dstChatId, newMessageId)
 							deleteNewMessageId(dstChatId, tmpMessageId)
-							result = append(result, fmt.Sprintf("%d:%d", dstChatId, newMessageId))
+							deleteAnswerMessageId(dstChatId, tmpMessageId)
+							result = append(result, fmt.Sprintf("%d:%d:%d", dstChatId, tmpMessageId, newMessageId))
 						}
 						deleteCopiedMessageIds(fromChatMessageId)
 					}
@@ -559,7 +587,7 @@ func runReports() {
 				var viewed, forwarded int64
 				{
 					key := []byte(fmt.Sprintf("%s:%d:%s", viewedMessagesPrefix, toChatId, date))
-					val := getByDB(key)
+					val := getForDB(key)
 					if len(val) == 0 {
 						viewed = 0
 					} else {
@@ -568,7 +596,7 @@ func runReports() {
 				}
 				{
 					key := []byte(fmt.Sprintf("%s:%d:%s", forwardedMessagesPrefix, toChatId, date))
-					val := getByDB(key)
+					val := getForDB(key)
 					if len(val) == 0 {
 						forwarded = 0
 					} else {
@@ -756,6 +784,59 @@ func deleteNewMessageId(chatId, tmpMessageId int64) {
 	log.Printf("deleteNewMessageId() key: %d:%d", chatId, tmpMessageId)
 }
 
+const tmpMessageIdPrefix = "tmpMsgId"
+
+func setTmpMessageId(chatId, newMessageId, tmpMessageId int64) {
+	key := []byte(fmt.Sprintf("%s:%d:%d", tmpMessageIdPrefix, chatId, newMessageId))
+	val := []byte(fmt.Sprintf("%d", tmpMessageId))
+	err := badgerDB.Update(func(txn *badger.Txn) error {
+		err := txn.Set(key, val)
+		return err
+	})
+	if err != nil {
+		log.Print("setTmpMessageId() ", err)
+	}
+	log.Printf("setTmpMessageId() key: %d:%d val: %d", chatId, newMessageId, tmpMessageId)
+}
+
+func getTmpMessageId(chatId, newMessageId int64) int64 {
+	key := []byte(fmt.Sprintf("%s:%d:%d", tmpMessageIdPrefix, chatId, newMessageId))
+	var (
+		err error
+		val []byte
+	)
+	err = badgerDB.View(func(txn *badger.Txn) error {
+		var item *badger.Item
+		item, err = txn.Get(key)
+		if err != nil {
+			return err
+		}
+		val, err = item.ValueCopy(nil)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		log.Print("getTmpMessageId() ", err)
+		return 0
+	}
+	tmpMessageId := int64(convertToInt(fmt.Sprintf("%s", val)))
+	log.Printf("getTmpMessageId() key: %d:%d val: %d", chatId, newMessageId, tmpMessageId)
+	return tmpMessageId
+}
+
+func deleteTmpMessageId(chatId, newMessageId int64) {
+	key := []byte(fmt.Sprintf("%s:%d:%d", tmpMessageIdPrefix, chatId, newMessageId))
+	err := badgerDB.Update(func(txn *badger.Txn) error {
+		return txn.Delete(key)
+	})
+	if err != nil {
+		log.Print(err)
+	}
+	log.Printf("deleteTmpMessageId() key: %d:%d", chatId, newMessageId)
+}
+
 var (
 	lastForwarded   = make(map[int64]time.Time)
 	lastForwardedMu sync.Mutex
@@ -785,7 +866,82 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 		err    error
 	)
 	if isSendCopy {
-		result, err = sendCopyNewMessages(tdlibClient, messages, srcChatId, dstChatId)
+		contents := make([]client.InputMessageContent, 0)
+		for i, message := range messages {
+			if message.ForwardInfo != nil {
+				if origin, ok := message.ForwardInfo.Origin.(*client.MessageForwardOriginChannel); ok {
+					if originMessage, err := tdlibClient.GetMessage(&client.GetMessageRequest{
+						ChatId:    origin.ChatId,
+						MessageId: origin.MessageId,
+					}); err != nil {
+						log.Print("originMessage ", err)
+					} else {
+						targetMessage := message
+						targetFormattedText, _ := getFormattedText(targetMessage.Content)
+						originFormattedText, _ := getFormattedText(originMessage.Content)
+						// workaround for https://github.com/tdlib/td/issues/1572
+						if targetFormattedText.Text == originFormattedText.Text {
+							messages[i] = originMessage
+						} else {
+							log.Print("targetMessage != originMessage")
+						}
+					}
+				}
+			}
+			src := messages[i] // !!!! for origin message
+			formattedText, contentMode := getFormattedText(src.Content)
+			formattedText = copyFormattedText(formattedText)
+			addAnswer(formattedText, src)
+			replaceMyselfLinks(formattedText, src.ChatId, dstChatId)
+			replaceFragments(formattedText, dstChatId)
+			// resetEntities(formattedText, dstChatId)
+			if i == 0 {
+				addSources(formattedText, src, dstChatId)
+			}
+			content := getInputMessageContent(src.Content, formattedText, contentMode)
+			if content != nil {
+				contents = append(contents, content)
+			}
+		}
+		var replyToMessageId int64 = 0
+		src := messages[0]
+		if src.ReplyToMessageId > 0 && src.ReplyInChatId == src.ChatId {
+			fromChatMessageId := fmt.Sprintf("%d:%d", src.ReplyInChatId, src.ReplyToMessageId)
+			toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
+			var tmpMessageId int64 = 0
+			for _, toChatMessageId := range toChatMessageIds {
+				a := strings.Split(toChatMessageId, ":")
+				if int64(convertToInt(a[1])) == dstChatId {
+					tmpMessageId = int64(convertToInt(a[2]))
+					break
+				}
+			}
+			if tmpMessageId != 0 {
+				replyToMessageId = getNewMessageId(dstChatId, tmpMessageId)
+			}
+		}
+		if len(contents) == 1 {
+			var message *client.Message
+			message, err = tdlibClient.SendMessage(&client.SendMessageRequest{
+				ChatId:              dstChatId,
+				InputMessageContent: contents[0],
+				ReplyToMessageId:    replyToMessageId,
+			})
+			if err != nil {
+				// nothing
+			} else {
+				result = &client.Messages{
+					TotalCount: 1,
+					Messages:   []*client.Message{message},
+				}
+			}
+		} else {
+			result, err = tdlibClient.SendMessageAlbum(&client.SendMessageAlbumRequest{
+				ChatId:               dstChatId,
+				InputMessageContents: contents,
+				ReplyToMessageId:     replyToMessageId,
+			})
+		}
 	} else {
 		result, err = tdlibClient.ForwardMessages(&client.ForwardMessagesRequest{
 			ChatId:     dstChatId,
@@ -820,13 +976,29 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 				log.Printf("!!!! dst == nil !!!! result: %#v messages: %#v", result, messages)
 				continue
 			}
-			dstId := dst.Id
+			tmpMessageId := dst.Id
 			src := messages[i] // !!!! for origin message
-			toChatMessageId := fmt.Sprintf("%s:%d:%d", forwardKey, dstChatId, dstId)
+			toChatMessageId := fmt.Sprintf("%s:%d:%d", forwardKey, dstChatId, tmpMessageId)
 			fromChatMessageId := fmt.Sprintf("%d:%d", src.ChatId, src.Id)
 			setCopiedMessageId(fromChatMessageId, toChatMessageId)
+			if _, ok := getReplyMarkupData(src); ok {
+				setAnswerMessageId(dstChatId, tmpMessageId, fromChatMessageId)
+			}
 		}
 	}
+}
+
+func getReplyMarkupData(message *client.Message) ([]byte, bool) {
+	if message.ReplyMarkup != nil {
+		if a, ok := message.ReplyMarkup.(*client.ReplyMarkupInlineKeyboard); ok {
+			row := a.Rows[0]
+			btn := row[0]
+			if callback, ok := btn.Type.(*client.InlineKeyboardButtonTypeCallback); ok {
+				return callback.Data, true
+			}
+		}
+	}
+	return nil, false
 }
 
 type ContentMode string
@@ -1020,6 +1192,78 @@ func getIP() string {
 
 func getFaviconHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "static/favicon.ico")
+}
+
+func getAnswerHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: использовать коды ошибок HTTP для статусов: error, ok, wait
+	// 102 Processing
+	// 200 OK
+	// 204 No Content
+	// 400 Bad Request
+	// 408 Request Timeout
+	result := func() string {
+		q := r.URL.Query()
+		var isOnlyCheck bool
+		if len(q["only_check"]) == 1 {
+			isOnlyCheck = q["only_check"][0] == "1"
+		}
+		var dstChatId int64
+		if len(q["chat_id"]) == 1 {
+			dstChatId = int64(convertToInt(q["chat_id"][0]))
+		}
+		var newMessageId int64
+		if len(q["message_id"]) == 1 {
+			newMessageId = int64(convertToInt(q["message_id"][0]))
+		}
+		if dstChatId == 0 || newMessageId == 0 {
+			err := "invalid input parameters"
+			log.Print(err)
+			return ""
+		}
+		var srcChatId int64
+		var srcMessageId int64
+		tmpMessageId := getTmpMessageId(dstChatId, newMessageId)
+		if tmpMessageId != 0 {
+			fromChatMessageId := getAnswerMessageId(dstChatId, tmpMessageId)
+			if fromChatMessageId != "" {
+				a := strings.Split(fromChatMessageId, ":")
+				srcChatId = int64(convertToInt(a[0]))
+				srcMessageId = int64(convertToInt(a[1]))
+			}
+		}
+		if srcChatId == 0 || srcMessageId == 0 {
+			err := "source message is not found in DB"
+			log.Print(err)
+			return ""
+		}
+		message, err := tdlibClient.GetMessage(&client.GetMessageRequest{
+			ChatId:    srcChatId,
+			MessageId: srcMessageId,
+		})
+		if err != nil {
+			log.Print(err)
+			return ""
+		}
+		data, ok := getReplyMarkupData(message)
+		if !ok {
+			return ""
+		}
+		if isOnlyCheck {
+			return "1"
+		}
+		answer, err := tdlibClient.GetCallbackQueryAnswer(&client.GetCallbackQueryAnswerRequest{
+			ChatId:    srcChatId,
+			MessageId: srcMessageId,
+			Payload:   &client.CallbackQueryPayloadData{Data: data},
+		})
+		if err != nil {
+			log.Print(err)
+			return ""
+		}
+		return answer.Text
+	}()
+	w.Header().Set("Content-Type", "text/plain")
+	io.WriteString(w, result)
 }
 
 func getPingHandler(w http.ResponseWriter, r *http.Request) {
@@ -1269,7 +1513,7 @@ func incrementByDB(key []byte) []byte {
 	return result
 }
 
-func getByDB(key []byte) []byte {
+func getForDB(key []byte) []byte {
 	var (
 		err error
 		val []byte
@@ -1287,33 +1531,33 @@ func getByDB(key []byte) []byte {
 		return nil
 	})
 	if err != nil {
-		log.Printf("getByDB() key: %s %s", key, err)
+		log.Printf("getForDB() key: %s %s", key, err)
 	} else {
-		log.Printf("getByDB() key: %s, val: %#v", key, val)
+		log.Printf("getForDB() key: %s, val: %s", key, string(val))
 	}
 	return val
 }
 
-// func setForDB(key []byte, val []byte) {
-// 	err := badgerDB.Update(func(txn *badger.Txn) error {
-// 		err := txn.Set(key, val)
-// 		return err
-// 	})
-// 	if err != nil {
-// 		log.Printf("setByDB() key: %s err: %s ", string(key), err)
-// 		// } else {
-// 		// log.Printf("setByDB() key: %s val: %s", string(key), string(val))
-// 	}
-// }
+func setForDB(key []byte, val []byte) {
+	err := badgerDB.Update(func(txn *badger.Txn) error {
+		err := txn.Set(key, val)
+		return err
+	})
+	if err != nil {
+		log.Printf("setForDB() key: %s err: %s", string(key), err)
+	} else {
+		log.Printf("setForDB() key: %s val: %s", string(key), string(val))
+	}
+}
 
-// func deleteForDB(key []byte) {
-// 	err := badgerDB.Update(func(txn *badger.Txn) error {
-// 		return txn.Delete(key)
-// 	})
-// 	if err != nil {
-// 		log.Print(err)
-// 	}
-// }
+func deleteForDB(key []byte) {
+	err := badgerDB.Update(func(txn *badger.Txn) error {
+		return txn.Delete(key)
+	})
+	if err != nil {
+		log.Printf("deleteForDB() key: %s err: %s", string(key), err)
+	}
+}
 
 // TODO: потокобезопасное взаимодействие с queue?
 
@@ -1362,46 +1606,58 @@ func getInputThumbnail(thumbnail *client.Thumbnail) *client.InputThumbnail {
 	}
 }
 
+const answerMessageIdPrefix = "answerMsgId"
+
+func setAnswerMessageId(dstChatId, tmpMessageId int64, fromChatMessageId string) {
+	key := []byte(fmt.Sprintf("%s:%d:%d", answerMessageIdPrefix, dstChatId, tmpMessageId))
+	val := []byte(fromChatMessageId)
+	setForDB(key, val)
+}
+
+func getAnswerMessageId(dstChatId, tmpMessageId int64) string {
+	key := []byte(fmt.Sprintf("%s:%d:%d", answerMessageIdPrefix, dstChatId, tmpMessageId))
+	val := getForDB(key)
+	return string(val)
+}
+
+func deleteAnswerMessageId(dstChatId, tmpMessageId int64) {
+	key := []byte(fmt.Sprintf("%s:%d:%d", answerMessageIdPrefix, dstChatId, tmpMessageId))
+	deleteForDB(key)
+}
+
 func addAnswer(formattedText *client.FormattedText, src *client.Message) {
 	if containsInt64(configData.Answers, src.ChatId) {
-		if src.ReplyMarkup != nil {
-			if a, ok := src.ReplyMarkup.(*client.ReplyMarkupInlineKeyboard); ok {
-				row := a.Rows[0]
-				btn := row[0]
-				if callback, ok := btn.Type.(*client.InlineKeyboardButtonTypeCallback); ok {
-					// tdlibClient.AnswerCallbackQuery(&client.AnswerCallbackQueryRequest{})
-					if answer, err := tdlibClient.GetCallbackQueryAnswer(
-						&client.GetCallbackQueryAnswerRequest{
-							ChatId:    src.ChatId,
-							MessageId: src.Id,
-							Payload:   &client.CallbackQueryPayloadData{Data: callback.Data},
-						},
-					); err != nil {
-						log.Print(err)
-					} else {
-						sourceAnswer, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
-							Text: escapeAll(answer.Text),
-							ParseMode: &client.TextParseModeMarkdown{
-								Version: 2,
-							},
-						})
-						if err != nil {
-							log.Print("ParseTextEntities() ", err)
-						} else {
-							offset := int32(utils.StrLen(formattedText.Text))
-							if offset > 0 {
-								formattedText.Text += "\n\n"
-								offset = offset + 2
-							}
-							for _, entity := range sourceAnswer.Entities {
-								entity.Offset += offset
-							}
-							formattedText.Text += sourceAnswer.Text
-							formattedText.Entities = append(formattedText.Entities, sourceAnswer.Entities...)
-						}
-						log.Printf("addAnswer() %#v", formattedText)
+		if data, ok := getReplyMarkupData(src); ok {
+			if answer, err := tdlibClient.GetCallbackQueryAnswer(
+				&client.GetCallbackQueryAnswerRequest{
+					ChatId:    src.ChatId,
+					MessageId: src.Id,
+					Payload:   &client.CallbackQueryPayloadData{Data: data},
+				},
+			); err != nil {
+				log.Print(err)
+			} else {
+				sourceAnswer, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
+					Text: escapeAll(answer.Text),
+					ParseMode: &client.TextParseModeMarkdown{
+						Version: 2,
+					},
+				})
+				if err != nil {
+					log.Print("ParseTextEntities() ", err)
+				} else {
+					offset := int32(utils.StrLen(formattedText.Text))
+					if offset > 0 {
+						formattedText.Text += "\n\n"
+						offset = offset + 2
 					}
+					for _, entity := range sourceAnswer.Entities {
+						entity.Offset += offset
+					}
+					formattedText.Text += sourceAnswer.Text
+					formattedText.Entities = append(formattedText.Entities, sourceAnswer.Entities...)
 				}
+				log.Printf("addAnswer() %#v", formattedText)
 			}
 		}
 	}
@@ -1439,7 +1695,7 @@ func addSourceLink(message *client.Message, formattedText *client.FormattedText,
 		ForComment: false,
 	})
 	if err != nil {
-		log.Print("GetMessageLink() ", err)
+		log.Printf("GetMessageLink() ChatId: %d MessageId: %d %s", message.ChatId, message.Id, err)
 	} else {
 		sourceLink, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
 			Text: fmt.Sprintf("[%s%s](%s)", "\U0001f517", title, messageLink.Link),
@@ -1559,105 +1815,6 @@ func getInputMessageContent(messageContent client.MessageContent, formattedText 
 		}
 	}
 	return nil
-}
-
-func sendCopyNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dstChatId int64) (*client.Messages, error) {
-	// srcChatId - не использую, только для дебага
-	contents := make([]client.InputMessageContent, 0)
-	for i, message := range messages {
-		if message.ForwardInfo != nil {
-			if origin, ok := message.ForwardInfo.Origin.(*client.MessageForwardOriginChannel); ok {
-				if originMessage, err := tdlibClient.GetMessage(&client.GetMessageRequest{
-					ChatId:    origin.ChatId,
-					MessageId: origin.MessageId,
-				}); err != nil {
-					log.Print("originMessage ", err)
-				} else {
-					targetMessage := message
-					targetFormattedText, _ := getFormattedText(targetMessage.Content)
-					originFormattedText, _ := getFormattedText(originMessage.Content)
-					// workaround for https://github.com/tdlib/td/issues/1572
-					if targetFormattedText.Text == originFormattedText.Text {
-						messages[i] = originMessage
-					} else {
-						log.Print("targetMessage != originMessage")
-					}
-				}
-			}
-		}
-		src := messages[i] // !!!! for origin message
-		formattedText, contentMode := getFormattedText(src.Content)
-		formattedText = copyFormattedText(formattedText)
-		addAnswer(formattedText, src)
-		replaceMyselfLinks(formattedText, src.ChatId, dstChatId)
-		replaceFragments(formattedText, dstChatId)
-		// resetEntities(formattedText, dstChatId)
-		if i == 0 {
-			addSources(formattedText, src, dstChatId)
-		}
-		content := getInputMessageContent(src.Content, formattedText, contentMode)
-		if content != nil {
-			contents = append(contents, content)
-		}
-	}
-	var replyToMessageId int64 = 0
-	src := messages[0]
-	if src.ReplyToMessageId > 0 && src.ReplyInChatId == src.ChatId {
-		fromChatMessageId := fmt.Sprintf("%d:%d", src.ReplyInChatId, src.ReplyToMessageId)
-		toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
-		var tmpMessageId int64 = 0
-		for _, toChatMessageId := range toChatMessageIds {
-			a := strings.Split(toChatMessageId, ":")
-			if int64(convertToInt(a[1])) == dstChatId {
-				tmpMessageId = int64(convertToInt(a[2]))
-				break
-			}
-		}
-		if tmpMessageId != 0 {
-			replyToMessageId = getNewMessageId(dstChatId, tmpMessageId)
-		}
-	}
-	if len(contents) == 1 {
-		// s := "https://ya.ru"
-		// Rows := make([][]*client.InlineKeyboardButton, 0)
-		// Btns := make([]*client.InlineKeyboardButton, 0)
-		// Btns = append(Btns, &client.InlineKeyboardButton{
-		// 	Text: "Go", Type: &client.InlineKeyboardButtonTypeCallback{Data: []byte(s)},
-		// })
-		// Rows = append(Rows, Btns)
-		message, err := tdlibClient.SendMessage(&client.SendMessageRequest{
-			ChatId:              dstChatId,
-			InputMessageContent: contents[0],
-			ReplyToMessageId:    replyToMessageId,
-			// ReplyMarkup: func() client.ReplyMarkup {
-			// 	if true {
-			// 		log.Print("**** ReplyMarkup")
-			// 		s := "https://ya.ru"
-			// 		Rows := make([][]*client.InlineKeyboardButton, 0)
-			// 		Btns := make([]*client.InlineKeyboardButton, 0)
-			// 		Btns = append(Btns, &client.InlineKeyboardButton{
-			// 			Text: "Go", Type: &client.InlineKeyboardButtonTypeCallback{Data: []byte(s)},
-			// 		})
-			// 		Rows = append(Rows, Btns)
-			// 		return &client.ReplyMarkupInlineKeyboard{Rows: Rows}
-			// 	}
-			// 	return nil
-			// }(),
-		})
-		if err != nil {
-			return nil, err
-		}
-		return &client.Messages{
-			TotalCount: 1,
-			Messages:   []*client.Message{message},
-		}, nil
-	} else {
-		return tdlibClient.SendMessageAlbum(&client.SendMessageAlbumRequest{
-			ChatId:               dstChatId,
-			InputMessageContents: contents,
-			ReplyToMessageId:     replyToMessageId,
-		})
-	}
 }
 
 func replaceMyselfLinks(formattedText *client.FormattedText, srcChatId, dstChatId int64) {
