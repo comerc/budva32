@@ -29,11 +29,8 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: может отказаться вовсе от checkFns & otherFns? они выполняются вне queue, в итоге можно обработать удаление раньше, чем addSourceLink()
-// например: сообщение без SourceLink и продублировалось https://t.me/teslaholics2/12427
 // TODO: setNewMessageId() + setTmpMessageId() & deleteNewMessageId() + deleteTmpMessageId() - в одну транзакцию
-// TODO: копировать ReplyMarkup для редактирования сообщения (а не только для добавления нового сообщения)
-// TODO: для перевалочных каналов, куда выполняется системный forward (Copy2TSLA и ShuntTo) - не нужен setCopiedMessageId() && setNewMessageId()
+// TODO: для перевалочных каналов, куда выполняется системный forward (Copy2TSLA и ShuntTo) - не нужен setCopiedMessageId() && setNewMessageId() && setTmpMessageId()
 // TODO: заменить на fmt.Errorf()
 // TODO: убрать ContentMode; но нужно избавляться от formattedText в пользу Message.Content
 // TODO: @usa100cks #Статистика
@@ -291,7 +288,7 @@ func main() {
 				checkFns := make(map[int64]func())
 				otherFns := make(map[int64]func())
 				forwardedTo := make(map[int64]bool)
-				var wg sync.WaitGroup
+				// var wg sync.WaitGroup
 				// configData := getConfig()
 				for forwardKey, forward := range configData.Forwards {
 					// !!!! copy for go routine
@@ -308,40 +305,40 @@ func main() {
 							}
 						}
 						if src.MediaAlbumId == 0 {
-							wg.Add(1)
-							log.Print("wg.Add(1) for src.Id: ", src.Id)
+							// wg.Add(1)
+							// log.Print("wg.Add(1) for src.Id: ", src.Id)
 							fn := func() {
-								defer func() {
-									wg.Done()
-									log.Print("wg.Done() for src.Id: ", src.Id)
-								}()
+								// defer func() {
+								// 	wg.Done()
+								// 	log.Print("wg.Done() for src.Id: ", src.Id)
+								// }()
 								doUpdateNewMessage([]*client.Message{src}, forwardKey, forward, forwardedTo, checkFns, otherFns)
 							}
 							queue.PushBack(fn)
 						} else {
 							isFirstMessage := addMessageToMediaAlbum(forwardKey, src)
 							if isFirstMessage {
-								wg.Add(1)
-								log.Print("wg.Add(1) for src.Id: ", src.Id)
-								go handleMediaAlbum(forwardKey, src.MediaAlbumId,
-									func(messages []*client.Message) {
-										fn := func() {
-											defer func() {
-												wg.Done()
-												log.Print("wg.Done() for src.Id: ", src.Id)
-											}()
+								// wg.Add(1)
+								// log.Print("wg.Add(1) for src.Id: ", src.Id)
+								fn := func() {
+									handleMediaAlbum(forwardKey, src.MediaAlbumId,
+										func(messages []*client.Message) {
+											// defer func() {
+											// 	wg.Done()
+											// 	log.Print("wg.Done() for src.Id: ", src.Id)
+											// }()
 											doUpdateNewMessage(messages, forwardKey, forward, forwardedTo, checkFns, otherFns)
-										}
-										queue.PushBack(fn)
-									})
+										})
+								}
+								queue.PushBack(fn)
 							}
 						}
 					}
 				}
 				if isExist {
-					go func() {
-						wg.Wait()
-						log.Print("wg.Wait() for src.Id: ", src.Id)
+					fn := func() {
+						// wg.Wait()
+						// log.Print("wg.Wait() for src.Id: ", src.Id)
 						for dstChatId, isForwarded := range forwardedTo {
 							if isForwarded {
 								incrementForwardedMessages(dstChatId)
@@ -364,7 +361,8 @@ func main() {
 							log.Printf("other: %d fn()", other)
 							fn()
 						}
-					}()
+					}
+					queue.PushBack(fn)
 				}
 			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
 				chatId := updateMessageEdited.ChatId
@@ -498,29 +496,30 @@ func main() {
 							deleteAnswerMessageId(dstChatId, tmpMessageId)
 						}
 					}
-					go func() {
-						for check, fn := range checkFns {
-							if fn == nil {
-								log.Printf("check: %d nil", check)
-								continue
-							}
-							log.Printf("check: %d fn()", check)
-							fn()
+					for check, fn := range checkFns {
+						if fn == nil {
+							log.Printf("check: %d nil", check)
+							continue
 						}
-					}()
+						log.Printf("check: %d fn()", check)
+						fn()
+					}
 				}
 				queue.PushBack(fn)
 			} else if updateMessageSendSucceeded, ok := update.(*client.UpdateMessageSendSucceeded); ok {
-				log.Print("updateMessageSendSucceeded go")
 				message := updateMessageSendSucceeded.Message
-				if message.IsOutgoing {
-					// TODO: исследование - может такое быть? проверить лог
-					log.Print("**** updateMessageSendSucceeded message.IsOutgoing")
-				}
 				tmpMessageId := updateMessageSendSucceeded.OldMessageId
-				setNewMessageId(message.ChatId, tmpMessageId, message.Id)
-				setTmpMessageId(message.ChatId, message.Id, tmpMessageId)
-				log.Print("updateMessageSendSucceeded ok")
+				fn := func() {
+					log.Print("updateMessageSendSucceeded go")
+					if message.IsOutgoing {
+						// TODO: исследование - может такое быть? проверить лог
+						log.Print("**** updateMessageSendSucceeded message.IsOutgoing")
+					}
+					setNewMessageId(message.ChatId, tmpMessageId, message.Id)
+					setTmpMessageId(message.ChatId, message.Id, tmpMessageId)
+					log.Print("updateMessageSendSucceeded ok")
+				}
+				queue.PushBack(fn)
 			} else if updateDeleteMessages, ok := update.(*client.UpdateDeleteMessages); ok && updateDeleteMessages.IsPermanent {
 				chatId := updateDeleteMessages.ChatId
 				messageIds := updateDeleteMessages.MessageIds
