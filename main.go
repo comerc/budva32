@@ -29,6 +29,7 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: log.Fatalf() внутри go func() не вызывает выход из программы
 // TODO: setNewMessageId() + setTmpMessageId() & deleteNewMessageId() + deleteTmpMessageId() - в одну транзакцию
 // TODO: для перевалочных каналов, куда выполняется системный forward (Copy2TSLA и ShuntTo) - не нужен setCopiedMessageId() && setNewMessageId() && setTmpMessageId()
 // TODO: заменить на fmt.Errorf()

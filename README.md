@@ -211,9 +211,9 @@ To -
   - [x] Filters Mode (see above)
   - [x] Forward.IncludeSubmatch
   - [x] ReplaceMyselfLinks + DeleteExternal
-  - [x] ReplaceFragments
+  - [x] ReplaceFragments (and not equal len)
+  - [x] Sources.Link + Title
   - [x] Sources.Sign
-  - [x] Sources.Link
   - [ ] Answers
 - MediaAlbum
   - [x] Forward.SendCopy (or forward)
