@@ -277,8 +277,6 @@ func main() {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
 				src := updateNewMessage.Message
 				if src.IsOutgoing {
-					// TODO: исследование - может такое быть? проверить лог
-					log.Printf("**** updateNewMessage src.IsOutgoing %#v", src)
 					continue // !!
 				}
 				if _, contentMode := getFormattedText(src.Content); contentMode == "" {
@@ -386,10 +384,6 @@ func main() {
 					if err != nil {
 						log.Print("GetMessage() src ", err)
 						return
-					}
-					if src.IsOutgoing {
-						// TODO: исследование - может такое быть? проверить лог
-						log.Print("**** updateMessageEdited src.IsOutgoing")
 					}
 					srcFormattedText, contentMode := getFormattedText(src.Content)
 					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, srcFormattedText.Text != "", src.MediaAlbumId)
@@ -512,10 +506,6 @@ func main() {
 				tmpMessageId := updateMessageSendSucceeded.OldMessageId
 				fn := func() {
 					log.Print("updateMessageSendSucceeded go")
-					if message.IsOutgoing {
-						// TODO: исследование - может такое быть? проверить лог
-						log.Print("**** updateMessageSendSucceeded message.IsOutgoing")
-					}
 					setNewMessageId(message.ChatId, tmpMessageId, message.Id)
 					setTmpMessageId(message.ChatId, message.Id, tmpMessageId)
 					log.Print("updateMessageSendSucceeded ok")
