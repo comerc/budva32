@@ -183,6 +183,7 @@ func getMessageLink(srcChatId, srcMessageId int) {
 
 ## Filters Mode for Forward...
 
+```
 Exclude #COIN
 Include #TSLA
 
@@ -200,6 +201,7 @@ case #ARK
 Check -
 Other +
 To -
+```
 
 ## Test-plan for Config...
 
