@@ -395,10 +395,6 @@ func main() {
 				}
 			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
 				chatId := updateMessageEdited.ChatId
-				// Pantini Arbs
-				if containsInt64([]int64{-1001490544969, -1001483214782, -1001207781972}, chatId) {
-					continue
-				}
 				messageId := updateMessageEdited.MessageId
 				fn := func() {
 					var result []string
