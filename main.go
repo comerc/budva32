@@ -395,6 +395,10 @@ func main() {
 				}
 			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
 				chatId := updateMessageEdited.ChatId
+				// Pantini Arbs
+				if containsInt64([]int64{-1001490544969, -1001483214782, -1001207781972}, chatId) {
+					continue
+				}
 				messageId := updateMessageEdited.MessageId
 				fn := func() {
 					var result []string
@@ -542,6 +546,9 @@ func main() {
 				}
 				queue.PushBack(fn)
 			} else if updateDeleteMessages, ok := update.(*client.UpdateDeleteMessages); ok && updateDeleteMessages.IsPermanent {
+				if true {
+					continue
+				}
 				chatId := updateDeleteMessages.ChatId
 				messageIds := updateDeleteMessages.MessageIds
 				fn := func() {
@@ -1217,62 +1224,65 @@ func getFaviconHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func getAnswerHandler(w http.ResponseWriter, r *http.Request) {
-	// TODO: использовать коды ошибок HTTP для статусов: error, ok, wait
+	// использует коды ошибок HTTP для статусов: error, ok, wait
 	// 102 Processing
 	// 200 OK
 	// 204 No Content
-	// 400 Bad Request
-	// 408 Request Timeout
-	result := func() string {
-		q := r.URL.Query()
-		var isOnlyCheck bool
-		if len(q["only_check"]) == 1 {
-			isOnlyCheck = q["only_check"][0] == "1"
+	// 500 Internal Server Error
+	q := r.URL.Query()
+	var isOnlyCheck bool
+	if len(q["only_check"]) == 1 {
+		isOnlyCheck = q["only_check"][0] == "1"
+	}
+	var dstChatId int64
+	if len(q["chat_id"]) == 1 {
+		dstChatId = int64(convertToInt(q["chat_id"][0]))
+	}
+	var newMessageId int64
+	if len(q["message_id"]) == 1 {
+		newMessageId = int64(convertToInt(q["message_id"][0]))
+	}
+	if dstChatId == 0 || newMessageId == 0 {
+		err := fmt.Errorf("invalid input parameters")
+		log.Print(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var srcChatId int64
+	var srcMessageId int64
+	tmpMessageId := getTmpMessageId(dstChatId, newMessageId)
+	if tmpMessageId != 0 {
+		fromChatMessageId := getAnswerMessageId(dstChatId, tmpMessageId)
+		if fromChatMessageId != "" {
+			a := strings.Split(fromChatMessageId, ":")
+			srcChatId = int64(convertToInt(a[0]))
+			srcMessageId = int64(convertToInt(a[1]))
 		}
-		var dstChatId int64
-		if len(q["chat_id"]) == 1 {
-			dstChatId = int64(convertToInt(q["chat_id"][0]))
-		}
-		var newMessageId int64
-		if len(q["message_id"]) == 1 {
-			newMessageId = int64(convertToInt(q["message_id"][0]))
-		}
-		if dstChatId == 0 || newMessageId == 0 {
-			err := "invalid input parameters"
-			log.Print(err)
-			return ""
-		}
-		var srcChatId int64
-		var srcMessageId int64
-		tmpMessageId := getTmpMessageId(dstChatId, newMessageId)
-		if tmpMessageId != 0 {
-			fromChatMessageId := getAnswerMessageId(dstChatId, tmpMessageId)
-			if fromChatMessageId != "" {
-				a := strings.Split(fromChatMessageId, ":")
-				srcChatId = int64(convertToInt(a[0]))
-				srcMessageId = int64(convertToInt(a[1]))
-			}
-		}
-		if srcChatId == 0 || srcMessageId == 0 {
-			err := "source message is not found in DB"
-			log.Print(err)
-			return ""
-		}
-		message, err := tdlibClient.GetMessage(&client.GetMessageRequest{
-			ChatId:    srcChatId,
-			MessageId: srcMessageId,
-		})
-		if err != nil {
-			log.Print(err)
-			return ""
-		}
-		data, ok := getReplyMarkupData(message)
-		if !ok {
-			return ""
-		}
-		if isOnlyCheck {
-			return "1"
-		}
+	}
+	if srcChatId == 0 || srcMessageId == 0 {
+		err := fmt.Errorf("source message is not found in DB")
+		log.Print(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	message, err := tdlibClient.GetMessage(&client.GetMessageRequest{
+		ChatId:    srcChatId,
+		MessageId: srcMessageId,
+	})
+	if err != nil {
+		log.Print(err)
+		w.WriteHeader(http.StatusProcessing)
+		return
+	}
+	data, ok := getReplyMarkupData(message)
+	if !ok {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	result := ""
+	if isOnlyCheck {
+		result = "OK"
+	} else {
 		answer, err := tdlibClient.GetCallbackQueryAnswer(&client.GetCallbackQueryAnswerRequest{
 			ChatId:    srcChatId,
 			MessageId: srcMessageId,
@@ -1280,10 +1290,11 @@ func getAnswerHandler(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			log.Print(err)
-			return ""
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
-		return answer.Text
-	}()
+		result = answer.Text
+	}
 	w.Header().Set("Content-Type", "text/plain")
 	io.WriteString(w, result)
 }
