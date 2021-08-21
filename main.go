@@ -29,6 +29,7 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: почистить БД от "OptsFS-DST" - можно просто удалить все сообщения в канале
 // TODO: log.Fatalf() внутри go func() не вызывает выход из программы
 // TODO: setNewMessageId() + setTmpMessageId() & deleteNewMessageId() + deleteTmpMessageId() - в одну транзакцию
 // TODO: для перевалочных каналов, куда выполняется системный forward (Copy2TSLA и ShuntTo) - не нужен setCopiedMessageId() && setNewMessageId() && setTmpMessageId()
@@ -251,13 +252,22 @@ func main() {
 
 	go runQueue()
 
+	// chat, err := tdlibClient.GetChat(&client.GetChatRequest{
+	// 	ChatId: -1001477609980,
+	// })
+	// if err != nil {
+	// 	log.Print(err)
+	// } else {
+	// 	log.Print(chat.Title)
+	// }
+
 	// to20210813()
-	// dstChatId := -4321
-	// dstId := 1234 // !! tmpMessageId
-	// newMessageId := getNewMessageId(int64(dstChatId), int64(dstId))
+	// dstChatId := -1001389805972
+	// // dstId := 1234 // !! tmpMessageId
+	// // newMessageId := getNewMessageId(int64(dstChatId), int64(dstId))
 	// message, err := tdlibClient.GetMessage(&client.GetMessageRequest{
 	// 	ChatId:    int64(dstChatId),
-	// 	MessageId: newMessageId,
+	// 	MessageId: 727712792576,
 	// })
 	// if err != nil {
 	// 	log.Print(err)
@@ -265,6 +275,27 @@ func main() {
 	// 	formattedText, _ := getFormattedText(message.Content)
 	// 	log.Print(formattedText.Text)
 	// }
+
+	// ok, err := tdlibClient.LogOut()
+	// if err != nil {
+	// 	log.Print(err)
+	// }
+	// log.Print(ok)
+
+	// messages, err := tdlibClient.GetChatHistory(&client.GetChatHistoryRequest{
+	// 	ChatId: 777000,
+	// 	Limit:  8,
+	// })
+	// if err != nil {
+	// 	log.Print(err)
+	// } else {
+	// 	for _, message := range messages.Messages {
+	// 		if formattedText, contentMode := getFormattedText(message.Content); contentMode != "" {
+	// 			log.Print(formattedText.Text)
+	// 		}
+	// 	}
+	// }
+
 	// for update := range listener.Updates {
 	// 	_ = update
 	// }
@@ -280,7 +311,6 @@ func main() {
 					continue // !!
 				}
 				if _, contentMode := getFormattedText(src.Content); contentMode == "" {
-					log.Print("contentMode == \"\"")
 					continue
 				}
 				isExist := false
@@ -365,6 +395,10 @@ func main() {
 				}
 			} else if updateMessageEdited, ok := update.(*client.UpdateMessageEdited); ok {
 				chatId := updateMessageEdited.ChatId
+				// Pantini Arbs
+				if containsInt64([]int64{-1001490544969, -1001483214782, -1001207781972}, chatId) {
+					continue
+				}
 				messageId := updateMessageEdited.MessageId
 				fn := func() {
 					var result []string
@@ -550,7 +584,9 @@ func main() {
 							deleteAnswerMessageId(dstChatId, tmpMessageId)
 							result = append(result, fmt.Sprintf("%d:%d:%d", dstChatId, tmpMessageId, newMessageId))
 						}
-						deleteCopiedMessageIds(fromChatMessageId)
+						if len(toChatMessageIds) > 0 {
+							deleteCopiedMessageIds(fromChatMessageId)
+						}
 					}
 				}
 				queue.PushBack(fn)
