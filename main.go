@@ -1260,22 +1260,21 @@ func getAnswerHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	var srcChatId int64
-	var srcMessageId int64
 	tmpMessageId := getTmpMessageId(dstChatId, newMessageId)
-	if tmpMessageId != 0 {
-		fromChatMessageId := getAnswerMessageId(dstChatId, tmpMessageId)
-		if fromChatMessageId != "" {
-			a := strings.Split(fromChatMessageId, ":")
-			srcChatId = int64(convertToInt(a[0]))
-			srcMessageId = int64(convertToInt(a[1]))
-		}
-	}
-	if srcChatId == 0 || srcMessageId == 0 {
+	if tmpMessageId == 0 {
 		log.Print("http.StatusNoContent")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	fromChatMessageId := getAnswerMessageId(dstChatId, tmpMessageId)
+	if fromChatMessageId == "" {
+		log.Print("http.StatusResetContent")
+		w.WriteHeader(http.StatusResetContent)
+		return
+	}
+	a := strings.Split(fromChatMessageId, ":")
+	srcChatId := int64(convertToInt(a[0]))
+	srcMessageId := int64(convertToInt(a[1]))
 	message, err := tdlibClient.GetMessage(&client.GetMessageRequest{
 		ChatId:    srcChatId,
 		MessageId: srcMessageId,
