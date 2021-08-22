@@ -1235,10 +1235,11 @@ func getFaviconHandler(w http.ResponseWriter, r *http.Request) {
 
 func getAnswerHandler(w http.ResponseWriter, r *http.Request) {
 	// использует коды ошибок HTTP для статусов: error, ok, wait
-	// 102 Processing
 	// 200 OK
 	// 204 No Content
+	// 205 Reset Content
 	// 500 Internal Server Error
+	// TODO: накапливать статистику по параметру step, чтобы подкрутить паузу в shunt
 	q := r.URL.Query()
 	log.Printf("getAnswerHandler %#v", q)
 	var isOnlyCheck bool
@@ -1271,7 +1272,8 @@ func getAnswerHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if srcChatId == 0 || srcMessageId == 0 {
-		w.WriteHeader(http.StatusProcessing)
+		log.Print("http.StatusNoContent")
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	message, err := tdlibClient.GetMessage(&client.GetMessageRequest{
@@ -1285,13 +1287,11 @@ func getAnswerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	data, ok := getReplyMarkupData(message)
 	if !ok {
-		w.WriteHeader(http.StatusNoContent)
+		log.Print("http.StatusResetContent")
+		w.WriteHeader(http.StatusResetContent)
 		return
 	}
-	result := ""
-	if isOnlyCheck {
-		result = "OK"
-	} else {
+	if !isOnlyCheck {
 		answer, err := tdlibClient.GetCallbackQueryAnswer(&client.GetCallbackQueryAnswerRequest{
 			ChatId:    srcChatId,
 			MessageId: srcMessageId,
@@ -1302,10 +1302,9 @@ func getAnswerHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		result = answer.Text
+		w.Header().Set("Content-Type", "text/plain")
+		io.WriteString(w, answer.Text)
 	}
-	w.Header().Set("Content-Type", "text/plain")
-	io.WriteString(w, result)
 }
 
 func getPingHandler(w http.ResponseWriter, r *http.Request) {
