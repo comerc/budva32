@@ -307,9 +307,11 @@ func main() {
 		if update.GetClass() == client.ClassUpdate {
 			if updateNewMessage, ok := update.(*client.UpdateNewMessage); ok {
 				src := updateNewMessage.Message
-				if src.IsOutgoing {
-					continue // !!
-				}
+				// TODO: так нельзя отключать, а почему?
+				// if src.IsOutgoing {
+				// 	log.Print("src.IsOutgoing ", src.ChatId)
+				// 	continue // !!
+				// }
 				if _, contentMode := getFormattedText(src.Content); contentMode == "" {
 					continue
 				}
@@ -476,6 +478,9 @@ func main() {
 						addSources(formattedText, src, dstChatId)
 						newMessageId := getNewMessageId(dstChatId, tmpMessageId)
 						result = append(result, fmt.Sprintf("toChatMessageId: %s, newMessageId: %d", toChatMessageId, newMessageId))
+						if newMessageId == 0 {
+							continue
+						}
 						log.Print("contentMode: ", contentMode)
 						switch contentMode {
 						case ContentModeText:
@@ -518,6 +523,8 @@ func main() {
 								log.Print("EditMessageCaption() ", err)
 							}
 							log.Printf("EditMessageCaption() dst: %#v", dst)
+						default:
+							continue
 						}
 						if _, ok := getReplyMarkupData(src); ok {
 							setAnswerMessageId(dstChatId, tmpMessageId, fromChatMessageId)
@@ -572,7 +579,14 @@ func main() {
 							} else {
 								continue
 							}
+							deleteAnswerMessageId(dstChatId, tmpMessageId)
 							newMessageId := getNewMessageId(dstChatId, tmpMessageId)
+							result = append(result, fmt.Sprintf("%d:%d:%d", dstChatId, tmpMessageId, newMessageId))
+							if newMessageId == 0 {
+								continue
+							}
+							deleteTmpMessageId(dstChatId, newMessageId)
+							deleteNewMessageId(dstChatId, tmpMessageId)
 							_, err := tdlibClient.DeleteMessages(&client.DeleteMessagesRequest{
 								ChatId:     dstChatId,
 								MessageIds: []int64{newMessageId},
@@ -582,10 +596,6 @@ func main() {
 								log.Print("DeleteMessages() ", err)
 								continue
 							}
-							deleteTmpMessageId(dstChatId, newMessageId)
-							deleteNewMessageId(dstChatId, tmpMessageId)
-							deleteAnswerMessageId(dstChatId, tmpMessageId)
-							result = append(result, fmt.Sprintf("%d:%d:%d", dstChatId, tmpMessageId, newMessageId))
 						}
 						if len(toChatMessageIds) > 0 {
 							deleteCopiedMessageIds(fromChatMessageId)
@@ -1230,6 +1240,7 @@ func getAnswerHandler(w http.ResponseWriter, r *http.Request) {
 	// 204 No Content
 	// 500 Internal Server Error
 	q := r.URL.Query()
+	log.Printf("getAnswerHandler %#v", q)
 	var isOnlyCheck bool
 	if len(q["only_check"]) == 1 {
 		isOnlyCheck = q["only_check"][0] == "1"
@@ -1260,9 +1271,7 @@ func getAnswerHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if srcChatId == 0 || srcMessageId == 0 {
-		err := fmt.Errorf("source message is not found in DB")
-		log.Print(err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		w.WriteHeader(http.StatusProcessing)
 		return
 	}
 	message, err := tdlibClient.GetMessage(&client.GetMessageRequest{
@@ -1271,7 +1280,7 @@ func getAnswerHandler(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Print(err)
-		w.WriteHeader(http.StatusProcessing)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	data, ok := getReplyMarkupData(message)
