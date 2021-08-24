@@ -70,6 +70,8 @@ var (
 	inputCh  = make(chan string, 1)
 	outputCh = make(chan string, 1)
 	//
+	uniqueFrom map[int64]struct{}
+	//
 	configData    *config.Config
 	tdlibClient   *client.Client
 	mediaAlbumsMu sync.Mutex
@@ -127,8 +129,37 @@ func main() {
 			log.Fatalf("Can't initialise config: %s", err)
 			return
 		}
+		for _, v := range configData.ReplaceFragments {
+			for from, to := range v {
+				if utils.StrLen(from) != utils.StrLen(to) {
+					err := fmt.Errorf(`strLen("%s") != strLen("%s")`, from, to)
+					log.Print(err)
+					return
+				}
+			}
+		}
+		tmpUniqueFrom := make(map[int64]struct{})
+		re := regexp.MustCompile("[:,]")
+		for forwardKey, forward := range configData.Forwards {
+			if re.FindString(forwardKey) != "" {
+				err := fmt.Errorf("cannot use [:,] as Config.Forwards key in %s", forwardKey)
+				log.Print(err)
+				return
+			}
+			// TODO: "destination Id cannot be equal to source Id" - для всех From-To,
+			// а не только для одного Forward; для будущей обработки To в UpdateDeleteMessages
+			for _, dscChatId := range forward.To {
+				if forward.From == dscChatId {
+					err := fmt.Errorf("destination Id cannot be equal to source Id %d", dscChatId)
+					log.Print(err)
+					return
+				}
+			}
+			tmpUniqueFrom[forward.From] = struct{}{}
+		}
 		// configMu.Lock()
 		// defer configMu.Unlock()
+		uniqueFrom = tmpUniqueFrom
 		configData = tmp
 	})
 
@@ -399,6 +430,9 @@ func main() {
 			case *client.UpdateMessageEdited:
 				updateMessageEdited := updateType
 				chatId := updateMessageEdited.ChatId
+				if _, ok := uniqueFrom[chatId]; !ok {
+					continue
+				}
 				messageId := updateMessageEdited.MessageId
 				repeat := 0
 				var fn func()
@@ -433,7 +467,7 @@ func main() {
 							log.Print("isUpdateMessageSendSucceeded > repeat: ", repeat)
 							queue.PushBack(fn)
 						} else {
-							log.Print("isUpdateMessageSendSucceeded > limit !!!")
+							log.Print("isUpdateMessageSendSucceeded > repeat limit !!!")
 						}
 						return
 					}
@@ -582,6 +616,10 @@ func main() {
 					continue
 				}
 				chatId := updateDeleteMessages.ChatId
+				if _, ok := uniqueFrom[chatId]; !ok {
+					continue
+				}
+				// TODO: а если удаление произошло в Forward.To - тоже надо чистить БД
 				messageIds := updateDeleteMessages.MessageIds
 				repeat := 0
 				var fn func()
@@ -617,7 +655,7 @@ func main() {
 							log.Print("isUpdateMessageSendSucceeded > repeat: ", repeat)
 							queue.PushBack(fn)
 						} else {
-							log.Print("isUpdateMessageSendSucceeded > limit !!!")
+							log.Print("isUpdateMessageSendSucceeded > repeat limit !!!")
 						}
 						return
 					}
@@ -639,9 +677,6 @@ func main() {
 							deleteAnswerMessageId(dstChatId, tmpMessageId)
 							newMessageId := newMessageIds[fmt.Sprintf("%d:%d", dstChatId, tmpMessageId)]
 							result = append(result, fmt.Sprintf("%d:%d:%d", dstChatId, tmpMessageId, newMessageId))
-							if newMessageId == 0 {
-								continue
-							}
 							deleteTmpMessageId(dstChatId, newMessageId)
 							deleteNewMessageId(dstChatId, tmpMessageId)
 							_, err := tdlibClient.DeleteMessages(&client.DeleteMessagesRequest{
@@ -985,8 +1020,8 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 				}
 			}
 			src := messages[i] // !!!! for origin message
-			formattedText, contentMode := getFormattedText(src.Content)
-			formattedText = copyFormattedText(formattedText)
+			srcFormattedText, contentMode := getFormattedText(src.Content)
+			formattedText := copyFormattedText(srcFormattedText)
 			addAnswer(formattedText, src)
 			replaceMyselfLinks(formattedText, src.ChatId, dstChatId)
 			replaceFragments(formattedText, dstChatId)
