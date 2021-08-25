@@ -216,7 +216,7 @@ To -
   - [x] ReplaceFragments (and not equal len)
   - [x] Sources.Link + Title
   - [x] Sources.Sign
-  - [ ] Answers
+  - [ ] AutoAnswers
 - MediaAlbum
   - [x] Forward.SendCopy (or forward)
   - [x] Forward.CopyOnce (edit sync)

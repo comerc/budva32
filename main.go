@@ -124,12 +124,12 @@ func main() {
 	)
 
 	go config.Watch(func() {
-		tmp, err := config.Load()
+		tmpConfigData, err := config.Load()
 		if err != nil {
 			log.Fatalf("Can't initialise config: %s", err)
 			return
 		}
-		for _, v := range configData.ReplaceFragments {
+		for _, v := range tmpConfigData.ReplaceFragments {
 			for from, to := range v {
 				if utils.StrLen(from) != utils.StrLen(to) {
 					err := fmt.Errorf(`strLen("%s") != strLen("%s")`, from, to)
@@ -140,7 +140,7 @@ func main() {
 		}
 		tmpUniqueFrom := make(map[int64]struct{})
 		re := regexp.MustCompile("[:,]")
-		for forwardKey, forward := range configData.Forwards {
+		for forwardKey, forward := range tmpConfigData.Forwards {
 			if re.FindString(forwardKey) != "" {
 				err := fmt.Errorf("cannot use [:,] as Config.Forwards key in %s", forwardKey)
 				log.Print(err)
@@ -160,7 +160,7 @@ func main() {
 		// configMu.Lock()
 		// defer configMu.Unlock()
 		uniqueFrom = tmpUniqueFrom
-		configData = tmp
+		configData = tmpConfigData
 	})
 
 	go func() {
@@ -339,6 +339,9 @@ func main() {
 			case *client.UpdateNewMessage:
 				updateNewMessage := updateType
 				src := updateNewMessage.Message
+				if _, ok := uniqueFrom[src.ChatId]; !ok {
+					continue
+				}
 				// TODO: так нельзя отключать, а почему?
 				// if src.IsOutgoing {
 				// 	log.Print("src.IsOutgoing > ", src.ChatId)
@@ -440,9 +443,9 @@ func main() {
 					var result []string
 					fromChatMessageId := fmt.Sprintf("%d:%d", chatId, messageId)
 					toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
-					log.Printf("updateMessageEdited > go > fromChatMessageId: %s toChatMessageIds: %v", fromChatMessageId, toChatMessageIds)
+					log.Printf("UpdateMessageEdited > go > fromChatMessageId: %s toChatMessageIds: %v", fromChatMessageId, toChatMessageIds)
 					defer func() {
-						log.Printf("updateMessageEdited > ok > result: %v", result)
+						log.Printf("UpdateMessageEdited > ok > result: %v", result)
 					}()
 					if len(toChatMessageIds) == 0 {
 						return
@@ -479,6 +482,7 @@ func main() {
 						log.Print("GetMessage > ", err)
 						return
 					}
+					// TODO: isAnswer
 					_, hasReplyMarkupData := getReplyMarkupData(src)
 					srcFormattedText, contentMode := getFormattedText(src.Content)
 					log.Printf("srcChatId: %d srcId: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, srcFormattedText.Text != "", src.MediaAlbumId)
@@ -530,7 +534,7 @@ func main() {
 						// if hasFiltersCheck {
 						// 	continue
 						// }
-						addAnswer(formattedText, src)
+						addAutoAnswer(formattedText, src)
 						replaceMyselfLinks(formattedText, src.ChatId, dstChatId)
 						replaceFragments(formattedText, dstChatId)
 						// resetEntities(formattedText, dstChatId)
@@ -583,6 +587,7 @@ func main() {
 						default:
 							continue
 						}
+						// TODO: isAnswer
 						if hasReplyMarkupData {
 							setAnswerMessageId(dstChatId, tmpMessageId, fromChatMessageId)
 						} else {
@@ -604,10 +609,10 @@ func main() {
 				message := updateMessageSendSucceeded.Message
 				tmpMessageId := updateMessageSendSucceeded.OldMessageId
 				fn := func() {
-					log.Print("updateMessageSendSucceeded > go")
+					log.Print("UpdateMessageSendSucceeded > go")
 					setNewMessageId(message.ChatId, tmpMessageId, message.Id)
 					setTmpMessageId(message.ChatId, message.Id, tmpMessageId)
-					log.Print("updateMessageSendSucceeded > ok")
+					log.Print("UpdateMessageSendSucceeded > ok")
 				}
 				queue.PushBack(fn)
 			case *client.UpdateDeleteMessages:
@@ -625,9 +630,9 @@ func main() {
 				var fn func()
 				fn = func() {
 					var result []string
-					log.Printf("updateDeleteMessages > go > chatId: %d messageIds: %v", chatId, messageIds)
+					log.Printf("UpdateDeleteMessages > go > chatId: %d messageIds: %v", chatId, messageIds)
 					defer func() {
-						log.Printf("updateDeleteMessages > ok > result: %v", result)
+						log.Printf("UpdateDeleteMessages > ok > result: %v", result)
 					}()
 					var copiedMessageIds = make(map[string][]string)
 					var newMessageIds = make(map[string]int64)
@@ -1022,7 +1027,7 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 			src := messages[i] // !!!! for origin message
 			srcFormattedText, contentMode := getFormattedText(src.Content)
 			formattedText := copyFormattedText(srcFormattedText)
-			addAnswer(formattedText, src)
+			addAutoAnswer(formattedText, src)
 			replaceMyselfLinks(formattedText, src.ChatId, dstChatId)
 			replaceFragments(formattedText, dstChatId)
 			// resetEntities(formattedText, dstChatId)
@@ -1112,6 +1117,7 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 			toChatMessageId := fmt.Sprintf("%s:%d:%d", forwardKey, dstChatId, tmpMessageId)
 			fromChatMessageId := fmt.Sprintf("%d:%d", src.ChatId, src.Id)
 			setCopiedMessageId(fromChatMessageId, toChatMessageId)
+			// TODO: isAnswer
 			if _, ok := getReplyMarkupData(src); ok {
 				setAnswerMessageId(dstChatId, tmpMessageId, fromChatMessageId)
 			}
@@ -1757,8 +1763,8 @@ func deleteAnswerMessageId(dstChatId, tmpMessageId int64) {
 	deleteForDB(key)
 }
 
-func addAnswer(formattedText *client.FormattedText, src *client.Message) {
-	if containsInt64(configData.Answers, src.ChatId) {
+func addAutoAnswer(formattedText *client.FormattedText, src *client.Message) {
+	if containsInt64(configData.AutoAnswers, src.ChatId) {
 		if data, ok := getReplyMarkupData(src); ok {
 			if answer, err := tdlibClient.GetCallbackQueryAnswer(
 				&client.GetCallbackQueryAnswerRequest{
@@ -1789,7 +1795,7 @@ func addAnswer(formattedText *client.FormattedText, src *client.Message) {
 					formattedText.Text += sourceAnswer.Text
 					formattedText.Entities = append(formattedText.Entities, sourceAnswer.Entities...)
 				}
-				log.Printf("addAnswer > %#v", formattedText)
+				log.Printf("addAutoAnswer > %#v", formattedText)
 			}
 		}
 	}
