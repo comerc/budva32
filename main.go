@@ -1764,7 +1764,7 @@ func deleteAnswerMessageId(dstChatId, tmpMessageId int64) {
 }
 
 func addAutoAnswer(formattedText *client.FormattedText, src *client.Message) {
-	if containsInt64(configData.AutoAnswers, src.ChatId) {
+	if configAnswer, ok := configData.Answers[src.ChatId]; ok && configAnswer.Auto {
 		if data, ok := getReplyMarkupData(src); ok {
 			if answer, err := tdlibClient.GetCallbackQueryAnswer(
 				&client.GetCallbackQueryAnswerRequest{

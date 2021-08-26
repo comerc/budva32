@@ -3,12 +3,16 @@ package config
 const filename = ".config.yml"
 
 type Config struct {
-	AutoAnswers        []int64 // TODO: map[int64]struct{}
+	Answers            map[int64]Answer
 	ReplaceMyselfLinks map[int64]ReplaceMyselfLink
 	ReplaceFragments   map[int64]map[string]string
 	Sources            map[int64]Source
 	Reports            Reports
 	Forwards           map[string]Forward
+}
+
+type Answer struct {
+	Auto bool
 }
 
 type ReplaceMyselfLink struct {
