@@ -52,7 +52,7 @@ import (
 // TODO: вырезать из сообщения ссылки по шаблону (https://t.me/c/1234/* - см. BRAVO)
 // TODO: добавить справочник с константами для конфига
 // TODO: вынести waitForForward в конфиг (не для всех каналов требуется ожидание реакции бота)
-// TODO: Переводить https://t.me/pantini_cnbc или https://www.cnbc.com/rss-feeds/ или https://blog.feedspot.com/stock_rss_feeds/ через Google Translate API и копировать в @teslaholics
+// TODO: Переводить https://t.me/pantini_cnbc или https://www.cnbc.com/rss-feeds/ или https://blog.feedspot.com/stock_rss_feeds/ или https://newsfilter.io/latest/news или https://www.businesswire.com/ или https://www.prnewswire.com/ через Google Translate API и копировать в @teslaholics
 // TODO: ОГРОМНОЕ ТОРНАДО ПРОШЛО В ВЕРНОНЕ - похерился американский флаг при копировании на мобильной версии
 // TODO: как бороться с зацикливанием пересылки
 // TODO: фильтры, как исполняемые скрипты на node.js
