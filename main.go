@@ -29,6 +29,10 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: подключить @stocksi_earnings
+// TODO: закрыть порт для хождения снаружи, оставить только localhost
+// TODO: беда с альбомами, добавляю SourceLink ко всем сообщениям, если первое было пустое - то не видно текста.
+// TODO: Пересылка голосований?
 // TODO: прикреплять myself link только к первому сообщению альбома (сейчас прикрепляется к любому, где была подпись)
 // TODO: копирование отредактированных сообщений выполняется ответами на исходное (но ответы работают только группах, но не в каналах) - видно историю (Forward.EditHistory); но что делать с ReplaceMyselfLinks?
 // TODO: почистить БД от "OptsFS-DST" - можно просто удалить все сообщения в канале
@@ -282,57 +286,6 @@ func main() {
 	go runReports()
 
 	go runQueue()
-
-	// chat, err := tdlibClient.GetChat(&client.GetChatRequest{
-	// 	ChatId: -1001477609980,
-	// })
-	// if err != nil {
-	// 	log.Print(err)
-	// } else {
-	// 	log.Print(chat.Title)
-	// }
-
-	// to20210813()
-	// dstChatId := -1001389805972
-	// // dstId := 1234 // !! tmpMessageId
-	// // newMessageId := getNewMessageId(int64(dstChatId), int64(dstId))
-	// message, err := tdlibClient.GetMessage(&client.GetMessageRequest{
-	// 	ChatId:    int64(dstChatId),
-	// 	MessageId: 727712792576,
-	// })
-	// if err != nil {
-	// 	log.Print(err)
-	// } else {
-	// 	formattedText, _ := getFormattedText(message.Content)
-	// 	log.Print(formattedText.Text)
-	// }
-
-	// ok, err := tdlibClient.LogOut()
-	// if err != nil {
-	// 	log.Print(err)
-	// }
-	// log.Print(ok)
-
-	// messages, err := tdlibClient.GetChatHistory(&client.GetChatHistoryRequest{
-	// 	ChatId: 777000,
-	// 	Limit:  8,
-	// })
-	// if err != nil {
-	// 	log.Print(err)
-	// } else {
-	// 	for _, message := range messages.Messages {
-	// 		if formattedText, contentMode := getFormattedText(message.Content); contentMode != "" {
-	// 			log.Print(formattedText.Text)
-	// 		}
-	// 	}
-	// }
-
-	// for update := range listener.Updates {
-	// 	_ = update
-	// }
-	// if true {
-	// 	return
-	// }
 
 	for update := range listener.Updates {
 		if update.GetClass() == client.ClassUpdate {
