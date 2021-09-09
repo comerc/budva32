@@ -29,7 +29,6 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
-// TODO: подключить @stocksi_earnings
 // TODO: закрыть порт для хождения снаружи, оставить только localhost
 // TODO: беда с альбомами, добавляю SourceLink ко всем сообщениям, если первое было пустое - то не видно текста.
 // TODO: Пересылка голосований?
