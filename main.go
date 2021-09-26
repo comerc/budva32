@@ -29,6 +29,8 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: подключить @secinsidertrades вместо @insiders_ru
+// TODO: изучить каналы в @TagNewsSenderbot
 // TODO: проверить работоспособность видео и аудио сообщений
 // TODO: закрыть порт для хождения снаружи, оставить только localhost
 // TODO: беда с альбомами, добавляю SourceLink ко всем сообщениям, если первое было пустое - то не видно текста.
@@ -293,6 +295,37 @@ func main() {
 			case *client.UpdateNewMessage:
 				updateNewMessage := updateType
 				src := updateNewMessage.Message
+				go func() {
+					if _, ok := configData.DeleteSystemMessages[src.ChatId]; ok {
+						needDelete := false
+						switch src.Content.(type) {
+						case *client.MessageChatChangeTitle:
+							needDelete = true
+						case *client.MessageChatChangePhoto:
+							needDelete = true
+						case *client.MessageChatDeletePhoto:
+							needDelete = true
+						case *client.MessageChatAddMembers:
+							needDelete = true
+						case *client.MessageChatDeleteMember:
+							needDelete = true
+						case *client.MessageChatJoinByLink:
+							needDelete = true
+						case *client.MessagePinMessage:
+							needDelete = true
+						}
+						if needDelete {
+							_, err := tdlibClient.DeleteMessages(&client.DeleteMessagesRequest{
+								ChatId:     src.ChatId,
+								MessageIds: []int64{src.Id},
+								Revoke:     true,
+							})
+							if err != nil {
+								log.Print(err)
+							}
+						}
+					}
+				}()
 				if _, ok := uniqueFrom[src.ChatId]; !ok {
 					continue
 				}
@@ -397,7 +430,7 @@ func main() {
 					var result []string
 					fromChatMessageId := fmt.Sprintf("%d:%d", chatId, messageId)
 					toChatMessageIds := getCopiedMessageIds(fromChatMessageId)
-					log.Printf("UpdateMessageEdited > go > fromChatMessageId: %s toChatMessageIds: %v", fromChatMessageId, toChatMessageIds)
+					log.Printf("UpdateMessageEdited > do > fromChatMessageId: %s toChatMessageIds: %v", fromChatMessageId, toChatMessageIds)
 					defer func() {
 						log.Printf("UpdateMessageEdited > ok > result: %v", result)
 					}()
@@ -584,7 +617,7 @@ func main() {
 				var fn func()
 				fn = func() {
 					var result []string
-					log.Printf("UpdateDeleteMessages > go > chatId: %d messageIds: %v", chatId, messageIds)
+					log.Printf("UpdateDeleteMessages > do > chatId: %d messageIds: %v", chatId, messageIds)
 					defer func() {
 						log.Printf("UpdateDeleteMessages > ok > result: %v", result)
 					}()
@@ -1489,7 +1522,7 @@ func handleMediaAlbum(forwardKey string, id client.JsonInt64, cb func(messages [
 func doUpdateNewMessage(messages []*client.Message, forwardKey string, forward config.Forward, forwardedTo map[int64]bool, checkFns map[int64]func(), otherFns map[int64]func()) {
 	src := messages[0]
 	formattedText, contentMode := getFormattedText(src.Content)
-	log.Printf("doUpdateNewMessage > go > ChatId: %d Id: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText.Text != "", src.MediaAlbumId)
+	log.Printf("doUpdateNewMessage > do > ChatId: %d Id: %d hasText: %t MediaAlbumId: %d", src.ChatId, src.Id, formattedText.Text != "", src.MediaAlbumId)
 	// for log
 	var (
 		isFilters = false
