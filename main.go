@@ -29,6 +29,7 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: а нужно ли собирать в БД сообщения, для которых не установлен ReplaceMyselfLinks (например "FTDAlgo-TSLA")
 // TODO: нужна какая-то нотификация для каждого подписчика на выбранные хештеги
 // TODO: подменять кештеги на хештеги (к одному виду) - для удобства пользования
 // TODO: подключить @secinsidertrades вместо @insiders_ru
