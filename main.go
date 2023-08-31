@@ -29,6 +29,9 @@ import (
 	"github.com/zelenin/go-tdlib/client"
 )
 
+// TODO: rsyslog для агрегации логов
+// TODO: "log/slog" для уровней журналирования
+// TODO: https://github.com/braintree/manners см. рецепт #5 в книжке go-in-practice
 // TODO: https://stackoverflow.com/questions/33238518/what-could-happen-if-i-dont-close-response-body
 // TODO: кештеги бумажек заменять на хештеги - к одному виду
 // TODO: а нужно ли собирать в БД сообщения, для которых не установлен ReplaceMyselfLinks (например "FTDAlgo-TSLA")
