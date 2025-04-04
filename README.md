@@ -2,6 +2,8 @@
 
 Telegram-Forwarder (UNIX-way)
 
+Project Was Archived. New Version Here: https://github.com/comerc/budva43
+
 ## How to install tdlib (for use w/o docker)
 
 For Ubuntu 18.04
