@@ -21,9 +21,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf16"
 
 	"github.com/comerc/budva32/config"
-	"github.com/comerc/budva32/utils"
 	"github.com/dgraph-io/badger"
 	"github.com/joho/godotenv"
 	"github.com/zelenin/go-tdlib/client"
@@ -95,30 +95,38 @@ var (
 )
 
 func main() {
+	// OK: перенесено - main.go (setupLogger)
 	log.SetFlags(log.LUTC | log.Ldate | log.Ltime | log.Lshortfile)
+
 	var err error
 
+	// OK: перенесено - config/loader.go (load)
 	if err = godotenv.Load(); err != nil {
 		log.Fatalf("Error loading .env file")
 	}
 
+	// OK: перенесено - config/dir.go (MakeDirs)
 	path := filepath.Join(".", ".tdata")
 	if _, err = os.Stat(path); os.IsNotExist(err) {
 		os.Mkdir(path, os.ModePerm)
 	}
 
 	{
+		// OK: перенесено - config/dir.go (MakeDirs)
 		path := filepath.Join(path, "badger")
 		if _, err = os.Stat(path); os.IsNotExist(err) {
 			os.Mkdir(path, os.ModePerm)
 		}
+		// OK: перенесено - repo/storage/repo.go (Start)
 		badgerDB, err = badger.Open(badger.DefaultOptions(path))
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
+	// OK: перенесено - repo/storage/repo.go (Close)
 	defer badgerDB.Close()
 
+	// OK: перенесено - repo/storage/repo.go (runGarbageCollection)
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
@@ -131,6 +139,7 @@ func main() {
 		}
 	}()
 
+	// OK: перенесено - config/loader.go (load)
 	var (
 		apiId       = os.Getenv("BUDVA32_API_ID")
 		apiHash     = os.Getenv("BUDVA32_API_HASH")
@@ -138,21 +147,24 @@ func main() {
 		port        = os.Getenv("BUDVA32_PORT")
 	)
 
-	go config.Watch(func() {
+	reload := func() {
+		// OK: перенесено - config/loader.go (load)
 		tmpConfigData, err := config.Load()
 		if err != nil {
 			log.Fatalf("Can't initialise config: %s", err)
 			return
 		}
+		// OK: перенесено - service/engine/service.go (validateConfig)
 		for _, v := range tmpConfigData.ReplaceFragments {
 			for from, to := range v {
-				if utils.StrLen(from) != utils.StrLen(to) {
+				if strLenForUTF16(from) != strLenForUTF16(to) {
 					err := fmt.Errorf(`strLen("%s") != strLen("%s")`, from, to)
 					log.Print(err)
 					return
 				}
 			}
 		}
+		// OK: перенесено - service/engine/service.go (enrichConfig)
 		tmpUniqueFrom := make(map[int64]struct{})
 		re := regexp.MustCompile("[:,]")
 		for forwardKey, forward := range tmpConfigData.Forwards {
@@ -176,7 +188,10 @@ func main() {
 		// defer configMu.Unlock()
 		uniqueFrom = tmpUniqueFrom
 		configData = tmpConfigData
-	})
+	}
+
+	// НЕТ: перенесено частично - config/config.go (Watch)
+	go config.Watch(reload)
 
 	go func() {
 		http.HandleFunc("/favicon.ico", getFaviconHandler)
@@ -185,6 +200,7 @@ func main() {
 		http.HandleFunc("/answer", getAnswerHandler)
 		host := getIP()
 		port := ":" + port
+		// OK: перенесено - transport/web/transport.go (Start)
 		fmt.Println("Web-server is running: http://" + host + port)
 		if err := http.ListenAndServe(port, http.DefaultServeMux); err != nil {
 			log.Fatal("Error starting http server: ", err)
@@ -192,6 +208,7 @@ func main() {
 		}
 	}()
 
+	// НЕТ: перенесено частично - service/auth/authorizer.go (Handle)
 	// client authorizer
 	authorizer := client.ClientAuthorizer()
 	go func() {
@@ -221,6 +238,7 @@ func main() {
 	// botToken := "000000000:gsVCGG5YbikxYHC7bP5vRvmBqJ7Xz6vG6td"
 	// authorizer := client.BotAuthorizer(botToken)
 
+	// OK: перенесено - service/auth/authorizer.go (NewAuthorizer)
 	authorizer.TdlibParameters <- &client.TdlibParameters{
 		UseTestDc:              false,
 		DatabaseDirectory:      filepath.Join(path, "db"),
@@ -239,6 +257,7 @@ func main() {
 		IgnoreFileNames:        false,
 	}
 
+	// OK: перенесено - repo/telegram/repo.go (setupOptions)
 	logStream := func(tdlibClient *client.Client) {
 		tdlibClient.SetLogStream(&client.SetLogStreamRequest{
 			LogStream: &client.LogStreamFile{
@@ -248,13 +267,13 @@ func main() {
 			},
 		})
 	}
-
 	logVerbosity := func(tdlibClient *client.Client) {
 		tdlibClient.SetLogVerbosityLevel(&client.SetLogVerbosityLevelRequest{
 			NewVerbosityLevel: 1,
 		})
 	}
 
+	// OK: перенесено - repo/telegram/repo.go (CreateClient)
 	tdlibClient, err = client.NewClient(authorizer, logStream, logVerbosity)
 	if err != nil {
 		log.Fatalf("NewClient error: %s", err)
@@ -265,6 +284,7 @@ func main() {
 
 	log.Print("Start...")
 
+	// OK: перенесено - repo/telegram/repo.go (GetVersion)
 	if optionValue, err := tdlibClient.GetOption(&client.GetOptionRequest{
 		Name: "version",
 	}); err != nil {
@@ -273,15 +293,18 @@ func main() {
 		log.Printf("TDLib version: %s", optionValue.(*client.OptionValueString).Value)
 	}
 
+	// OK: перенесено - repo/telegram/repo.go (GetMe)
 	if me, err := tdlibClient.GetMe(); err != nil {
 		log.Fatalf("GetMe error: %s", err)
 	} else {
 		log.Printf("Me: %s %s [@%s]", me.FirstName, me.LastName, me.Username)
 	}
 
+	// OK: перенесено - service/engine/service.go (run)
 	listener := tdlibClient.GetListener()
 	defer listener.Close()
 
+	// OK: перенесено - main.go (setupSignalHandler)
 	// Handle Ctrl+C
 	ch := make(chan os.Signal, 2)
 	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
@@ -291,18 +314,25 @@ func main() {
 		os.Exit(1)
 	}()
 
+	// NO: не перенесено, предлагаю - util/panic.go (HandlePanic)
 	defer handlePanic()
 
+	// НЕТ: не перенесено, предлагаю - service/report/service.go (StartReportService)
 	go runReports()
 
+	// OK: перенесено - service/queue/service.go (Start)
 	go runQueue()
 
+	// OK: перенесено - service/engine/service.go (handleUpdates)
 	for update := range listener.Updates {
+		// OK: перенесено - service/engine/service.go (handleUpdates)
 		if update.GetClass() == client.ClassUpdate {
 			switch updateType := update.(type) {
 			case *client.UpdateNewMessage:
+				// OK: перенесено - handler/update_new_message/handler.go (Run)
 				updateNewMessage := updateType
 				src := updateNewMessage.Message
+				// OK: перенесено - handler/update_new_message/handler.go (deleteSystemMessage)
 				go func() {
 					if _, ok := configData.DeleteSystemMessages[src.ChatId]; ok {
 						needDelete := false
@@ -359,6 +389,7 @@ func main() {
 					)
 					if src.ChatId == forward.From && (forward.SendCopy || src.CanBeForwarded) {
 						isExist = true
+						// OK: перенесено - service/forwarded_to/service.go (Init)
 						for _, dstChatId := range forward.To {
 							_, isPresent := forwardedTo[dstChatId]
 							if !isPresent {
@@ -426,6 +457,7 @@ func main() {
 					queue.PushBack(fn)
 				}
 			case *client.UpdateMessageEdited:
+				// OK: перенесено - handler/update_message_edited/handler.go (Run)
 				updateMessageEdited := updateType
 				chatId := updateMessageEdited.ChatId
 				if _, ok := uniqueFrom[chatId]; !ok {
@@ -600,6 +632,7 @@ func main() {
 				}
 				queue.PushBack(fn)
 			case *client.UpdateMessageSendSucceeded:
+				// OK: перенесено - handler/update_message_send/handler.go (Run)
 				updateMessageSendSucceeded := updateType
 				message := updateMessageSendSucceeded.Message
 				tmpMessageId := updateMessageSendSucceeded.OldMessageId
@@ -611,6 +644,7 @@ func main() {
 				}
 				queue.PushBack(fn)
 			case *client.UpdateDeleteMessages:
+				// OK: перенесено - handler/update_delete_messages/handler.go (Run)
 				updateDeleteMessages := updateType
 				if !updateDeleteMessages.IsPermanent {
 					continue
@@ -700,6 +734,7 @@ func main() {
 	}
 }
 
+// НЕТ: не перенесено, предлагаю - service/report/service.go (GenerateDailyReports)
 func runReports() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
@@ -716,6 +751,7 @@ func runReports() {
 			for _, toChatId := range configData.Reports.For {
 				date := utc.Add(-1 * time.Minute).Format("2006-01-02")
 				var viewed, forwarded int64
+				// OK: перенесено - service/storage/service.go (GetViewedMessages)
 				{
 					key := []byte(fmt.Sprintf("%s:%d:%s", viewedMessagesPrefix, toChatId, date))
 					val := getForDB(key)
@@ -725,6 +761,7 @@ func runReports() {
 						viewed = int64(bytesToUint64(val))
 					}
 				}
+				// OK: перенесено - service/storage/service.go (GetForwardedMessages)
 				{
 					key := []byte(fmt.Sprintf("%s:%d:%s", forwardedMessagesPrefix, toChatId, date))
 					val := getForDB(key)
@@ -762,6 +799,7 @@ func runReports() {
 	}
 }
 
+// OK: перенесено - util/primitive.go (ConvertToInt)
 func convertToInt(s string) int {
 	i, err := strconv.Atoi(s)
 	if err != nil {
@@ -780,6 +818,7 @@ func convertToInt(s string) int {
 
 const copiedMessageIdsPrefix = "copiedMsgIds"
 
+// OK: перенесено - service/storage/service.go (DeleteCopiedMessageIds)
 func deleteCopiedMessageIds(fromChatMessageId string) {
 	key := []byte(fmt.Sprintf("%s:%s", copiedMessageIdsPrefix, fromChatMessageId))
 	err := badgerDB.Update(func(txn *badger.Txn) error {
@@ -791,6 +830,7 @@ func deleteCopiedMessageIds(fromChatMessageId string) {
 	log.Printf("deleteCopiedMessageIds > fromChatMessageId: %s", fromChatMessageId)
 }
 
+// OK: перенесено - service/storage/service.go (SetCopiedMessageId)
 func setCopiedMessageId(fromChatMessageId string, toChatMessageId string) {
 	key := []byte(fmt.Sprintf("%s:%s", copiedMessageIdsPrefix, fromChatMessageId))
 	var (
@@ -825,6 +865,7 @@ func setCopiedMessageId(fromChatMessageId string, toChatMessageId string) {
 	log.Printf("setCopiedMessageId > fromChatMessageId: %s toChatMessageId: %s val: %s", fromChatMessageId, toChatMessageId, val)
 }
 
+// OK: перенесено - service/storage/service.go (GetCopiedMessageIds)
 func getCopiedMessageIds(fromChatMessageId string) []string {
 	key := []byte(fmt.Sprintf("%s:%s", copiedMessageIdsPrefix, fromChatMessageId))
 	var (
@@ -862,6 +903,7 @@ func getCopiedMessageIds(fromChatMessageId string) []string {
 
 const newMessageIdPrefix = "newMsgId"
 
+// OK: перенесено - service/storage/service.go (SetNewMessageId)
 func setNewMessageId(chatId, tmpMessageId, newMessageId int64) {
 	key := []byte(fmt.Sprintf("%s:%d:%d", newMessageIdPrefix, chatId, tmpMessageId))
 	val := []byte(fmt.Sprintf("%d", newMessageId))
@@ -876,6 +918,7 @@ func setNewMessageId(chatId, tmpMessageId, newMessageId int64) {
 	// newMessageIds[ChatMessageId(fmt.Sprintf("%d:%d", chatId, tmpMessageId))] = newMessageId
 }
 
+// OK: перенесено - service/storage/service.go (GetNewMessageId)
 func getNewMessageId(chatId, tmpMessageId int64) int64 {
 	key := []byte(fmt.Sprintf("%s:%d:%d", newMessageIdPrefix, chatId, tmpMessageId))
 	var (
@@ -904,6 +947,7 @@ func getNewMessageId(chatId, tmpMessageId int64) int64 {
 	// return newMessageIds[ChatMessageId(fmt.Sprintf("%d:%d", chatId, tmpMessageId))]
 }
 
+// OK: перенесено - service/storage/service.go (DeleteNewMessageId)
 func deleteNewMessageId(chatId, tmpMessageId int64) {
 	key := []byte(fmt.Sprintf("%s:%d:%d", newMessageIdPrefix, chatId, tmpMessageId))
 	err := badgerDB.Update(func(txn *badger.Txn) error {
@@ -917,6 +961,7 @@ func deleteNewMessageId(chatId, tmpMessageId int64) {
 
 const tmpMessageIdPrefix = "tmpMsgId"
 
+// OK: перенесено - service/storage/service.go (SetTmpMessageId)
 func setTmpMessageId(chatId, newMessageId, tmpMessageId int64) {
 	key := []byte(fmt.Sprintf("%s:%d:%d", tmpMessageIdPrefix, chatId, newMessageId))
 	val := []byte(fmt.Sprintf("%d", tmpMessageId))
@@ -930,6 +975,7 @@ func setTmpMessageId(chatId, newMessageId, tmpMessageId int64) {
 	log.Printf("setTmpMessageId > key: %d:%d val: %d", chatId, newMessageId, tmpMessageId)
 }
 
+// OK: перенесено - service/storage/service.go (GetTmpMessageId)
 func getTmpMessageId(chatId, newMessageId int64) int64 {
 	key := []byte(fmt.Sprintf("%s:%d:%d", tmpMessageIdPrefix, chatId, newMessageId))
 	var (
@@ -957,6 +1003,7 @@ func getTmpMessageId(chatId, newMessageId int64) int64 {
 	return tmpMessageId
 }
 
+// OK: перенесено - service/storage/service.go (DeleteTmpMessageId)
 func deleteTmpMessageId(chatId, newMessageId int64) {
 	key := []byte(fmt.Sprintf("%s:%d:%d", tmpMessageIdPrefix, chatId, newMessageId))
 	err := badgerDB.Update(func(txn *badger.Txn) error {
@@ -973,18 +1020,21 @@ var (
 	lastForwardedMu sync.Mutex
 )
 
+// OK: перенесено - service/rate_limiter/service.go (getLastForwardedDiff)
 func getLastForwardedDiff(chatId int64) time.Duration {
 	lastForwardedMu.Lock()
 	defer lastForwardedMu.Unlock()
 	return time.Since(lastForwarded[chatId])
 }
 
+// OK: перенесено - service/rate_limiter/service.go (setLastForwarded)
 func setLastForwarded(chatId int64) {
 	lastForwardedMu.Lock()
 	defer lastForwardedMu.Unlock()
 	lastForwarded[chatId] = time.Now()
 }
 
+// OK: перенесено - service/forwarder/service.go (ForwardMessages)
 func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, srcChatId, dstChatId int64, isSendCopy bool, forwardKey string) {
 	log.Printf("forwardNewMessages > srcChatId: %d dstChatId: %d", srcChatId, dstChatId)
 	diff := getLastForwardedDiff(dstChatId)
@@ -1120,6 +1170,7 @@ func forwardNewMessages(tdlibClient *client.Client, messages []*client.Message, 
 	}
 }
 
+// OK: перенесено - service/message/service.go (GetReplyMarkupData)
 func getReplyMarkupData(message *client.Message) ([]byte, bool) {
 	if message.ReplyMarkup != nil {
 		if a, ok := message.ReplyMarkup.(*client.ReplyMarkupInlineKeyboard); ok {
@@ -1133,6 +1184,7 @@ func getReplyMarkupData(message *client.Message) ([]byte, bool) {
 	return nil, false
 }
 
+// OK: не перенесено - используется client.TypeMessage*
 type ContentMode string
 
 const (
@@ -1145,12 +1197,12 @@ const (
 	ContentModeVoiceNote = "voiceNote"
 )
 
+// OK: перенесено - service/message/service.go (GetFormattedText)
 func getFormattedText(messageContent client.MessageContent) (*client.FormattedText, ContentMode) {
 	var (
 		formattedText *client.FormattedText
 		contentMode   ContentMode
 	)
-	// TODO: как использовать switch для разблюдовки по приведению типа?
 	if content, ok := messageContent.(*client.MessageText); ok {
 		formattedText = content.Text
 		contentMode = ContentModeText
@@ -1173,6 +1225,7 @@ func getFormattedText(messageContent client.MessageContent) (*client.FormattedTe
 		formattedText = content.Caption
 		contentMode = ContentModeVoiceNote
 	} else {
+		// TODO: надо поддерживать больше типов?
 		// client.MessageExpiredPhoto
 		// client.MessageSticker
 		// client.MessageExpiredVideo
@@ -1190,6 +1243,7 @@ func getFormattedText(messageContent client.MessageContent) (*client.FormattedTe
 	return formattedText, contentMode
 }
 
+// OK: перенесено - slices.Contains()
 func contains(a []string, s string) bool {
 	for _, t := range a {
 		if t == s {
@@ -1199,6 +1253,7 @@ func contains(a []string, s string) bool {
 	return false
 }
 
+// OK: перенесено - slices.Contains()
 func containsInt64(a []int64, e int64) bool {
 	for _, t := range a {
 		if t == e {
@@ -1216,6 +1271,7 @@ const (
 	FiltersOther FiltersMode = "other"
 )
 
+// OK: перенесено - service/filters_mode/service.go (Map)
 func checkFilters(formattedText *client.FormattedText, forward config.Forward) FiltersMode {
 	if formattedText.Text == "" {
 		hasInclude := false
@@ -1266,6 +1322,7 @@ func checkFilters(formattedText *client.FormattedText, forward config.Forward) F
 	return FiltersOK
 }
 
+// НЕТ: не перенесено, предлагаю - transport/web/middleware.go (withBasicAuth)
 func withBasicAuth(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, pass, ok := r.BasicAuth()
@@ -1280,6 +1337,7 @@ func withBasicAuth(handler http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// НЕТ: не перенесено, предлагаю - transport/web/middleware.go (withAuthentiation)
 func withAuthentiation(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if outputCh != nil {
@@ -1304,6 +1362,7 @@ func withAuthentiation(handler http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// NO: не перенесено, предлагаю - util/network.go (getIP)
 func getIP() string {
 	interfaces, _ := net.Interfaces()
 	for _, i := range interfaces {
@@ -1322,10 +1381,12 @@ func getIP() string {
 	return ""
 }
 
+// OK: перенесено - transport/web/transport.go (handleFavicon)
 func getFaviconHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "static/favicon.ico")
 }
 
+// НЕТ: не перенесено, предлагаю - transport/web/transport.go (getAnswerHandler)
 func getAnswerHandler(w http.ResponseWriter, r *http.Request) {
 	// использует коды ошибок HTTP для статусов: error, ok, wait
 	// 200 OK
@@ -1399,6 +1460,7 @@ func getAnswerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// НЕТ: не перенесено, предлагаю - transport/web/transport.go (getPingHandler)
 func getPingHandler(w http.ResponseWriter, r *http.Request) {
 	ret, err := time.Now().UTC().MarshalJSON()
 	if err != nil {
@@ -1409,6 +1471,7 @@ func getPingHandler(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, fmt.Sprintf("{now:%s}", string(ret)))
 }
 
+// НЕТ: не перенесено, предлагаю - transport/web/transport.go (getChatsHandler)
 func getChatsHandler(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	var limit = 1000
@@ -1437,6 +1500,7 @@ func getChatsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // see https://stackoverflow.com/questions/37782348/how-to-use-getchats-in-tdlib
+// НЕТ: не перенесено, предлагаю - service/telegram/service.go (getChatList)
 func getChatList(tdlibClient *client.Client, limit int) ([]*client.Chat, error) {
 	var (
 		allChats     []*client.Chat
@@ -1479,6 +1543,7 @@ func getChatList(tdlibClient *client.Client, limit int) ([]*client.Chat, error) 
 	return allChats, nil
 }
 
+// OK: перенесено - service/media_album/service.go
 type MediaAlbum struct {
 	messages     []*client.Message
 	lastReceived time.Time
@@ -1487,6 +1552,7 @@ type MediaAlbum struct {
 var mediaAlbums = make(map[string]MediaAlbum)
 
 // https://github.com/tdlib/td/issues/1482
+// OK: перенесено - service/media_album/service.go (AddMessage)
 func addMessageToMediaAlbum(forwardKey string, message *client.Message) bool {
 	key := fmt.Sprintf("%s:%d", forwardKey, message.MediaAlbumId)
 	item, ok := mediaAlbums[key]
@@ -1499,12 +1565,14 @@ func addMessageToMediaAlbum(forwardKey string, message *client.Message) bool {
 	return !ok
 }
 
+// OK: перенесено - service/media_album/service.go (GetLastReceivedDiff)
 func getMediaAlbumLastReceivedDiff(key string) time.Duration {
 	mediaAlbumsMu.Lock()
 	defer mediaAlbumsMu.Unlock()
 	return time.Since(mediaAlbums[key].lastReceived)
 }
 
+// OK: перенесено - service/media_album/service.go (PopMessages)
 func getMediaAlbumMessages(key string) []*client.Message {
 	mediaAlbumsMu.Lock()
 	defer mediaAlbumsMu.Unlock()
@@ -1515,6 +1583,7 @@ func getMediaAlbumMessages(key string) []*client.Message {
 
 const waitForMediaAlbum = 3 * time.Second
 
+// OK: перенесено - handler/update_new_message/handler.go (processMediaAlbum)
 func handleMediaAlbum(forwardKey string, id client.JsonInt64, cb func(messages []*client.Message)) {
 	key := fmt.Sprintf("%s:%d", forwardKey, id)
 	diff := getMediaAlbumLastReceivedDiff(key)
@@ -1527,6 +1596,7 @@ func handleMediaAlbum(forwardKey string, id client.JsonInt64, cb func(messages [
 	cb(messages)
 }
 
+// OK: перенесено - handler/update_new_message/handler.go (processMessage)
 func doUpdateNewMessage(messages []*client.Message, forwardKey string, forward config.Forward, forwardedTo map[int64]bool, checkFns map[int64]func(), otherFns map[int64]func()) {
 	src := messages[0]
 	formattedText, contentMode := getFormattedText(src.Content)
@@ -1585,6 +1655,7 @@ func doUpdateNewMessage(messages []*client.Message, forwardKey string, forward c
 // 	return result
 // }
 
+// NO: не перенесено, предлагаю - util/panic.go
 func handlePanic() {
 	if err := recover(); err != nil {
 		log.Printf("Panic...\n%s\n\n%s", err, debug.Stack())
@@ -1594,6 +1665,7 @@ func handlePanic() {
 
 const viewedMessagesPrefix = "viewedMsgs"
 
+// OK: перенесено - service/storage/service.go (IncrementViewedMessages)
 func incrementViewedMessages(toChatId int64) {
 	date := time.Now().UTC().Format("2006-01-02")
 	key := []byte(fmt.Sprintf("%s:%d:%s", viewedMessagesPrefix, toChatId, date))
@@ -1603,6 +1675,7 @@ func incrementViewedMessages(toChatId int64) {
 
 const forwardedMessagesPrefix = "forwardedMsgs"
 
+// OK: перенесено - service/storage/service.go (IncrementForwardedMessages)
 func incrementForwardedMessages(toChatId int64) {
 	date := time.Now().UTC().Format("2006-01-02")
 	key := []byte(fmt.Sprintf("%s:%d:%s", forwardedMessagesPrefix, toChatId, date))
@@ -1612,6 +1685,7 @@ func incrementForwardedMessages(toChatId int64) {
 
 var forwardedToMu sync.Mutex
 
+// OK: перенесено - service/forwarded_to/service.go (Add)
 func isNotForwardedTo(forwardedTo map[int64]bool, dstChatId int64) bool {
 	forwardedToMu.Lock()
 	defer forwardedToMu.Unlock()
@@ -1624,16 +1698,19 @@ func isNotForwardedTo(forwardedTo map[int64]bool, dstChatId int64) bool {
 
 // **** db routines
 
+// OK: перенесено - repo/storage/repo.go (convertUint64ToBytes)
 func uint64ToBytes(i uint64) []byte {
 	var buf [8]byte
 	binary.BigEndian.PutUint64(buf[:], i)
 	return buf[:]
 }
 
+// OK: перенесено - repo/storage/repo.go (ConvertBytesToUint64)
 func bytesToUint64(b []byte) uint64 {
 	return binary.BigEndian.Uint64(b)
 }
 
+// OK: перенесено - repo/storage/repo.go (Increment)
 func incrementByDB(key []byte) []byte {
 	// Merge function to add two uint64 numbers
 	add := func(existing, new []byte) []byte {
@@ -1646,6 +1723,7 @@ func incrementByDB(key []byte) []byte {
 	return result
 }
 
+// OK: перенесено - repo/storage/repo.go (Get)
 func getForDB(key []byte) []byte {
 	var (
 		err error
@@ -1671,6 +1749,7 @@ func getForDB(key []byte) []byte {
 	return val
 }
 
+// OK: перенесено - repo/storage/repo.go (Set)
 func setForDB(key []byte, val []byte) {
 	err := badgerDB.Update(func(txn *badger.Txn) error {
 		err := txn.Set(key, val)
@@ -1683,6 +1762,7 @@ func setForDB(key []byte, val []byte) {
 	}
 }
 
+// OK: перенесено - repo/storage/repo.go (Delete)
 func deleteForDB(key []byte) {
 	err := badgerDB.Update(func(txn *badger.Txn) error {
 		return txn.Delete(key)
@@ -1696,6 +1776,7 @@ func deleteForDB(key []byte) {
 
 var queue = list.New()
 
+// OK: перенесено - service/queue/service.go (runQueue)
 func runQueue() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -1712,6 +1793,7 @@ func runQueue() {
 	}
 }
 
+// OK: перенесено - util/primitive.go (Distinct)
 func distinct(a []string) []string {
 	set := make(map[string]struct{})
 	for _, val := range a {
@@ -1726,6 +1808,7 @@ func distinct(a []string) []string {
 
 const waitForForward = 3 * time.Second // чтобы бот успел отреагировать на сообщение
 
+// OK: перенесено - service/message/service.go (getInputThumbnail)
 func getInputThumbnail(thumbnail *client.Thumbnail) *client.InputThumbnail {
 	if thumbnail == nil || thumbnail.File == nil && thumbnail.File.Remote == nil {
 		return nil
@@ -1741,23 +1824,27 @@ func getInputThumbnail(thumbnail *client.Thumbnail) *client.InputThumbnail {
 
 const answerMessageIdPrefix = "answerMsgId"
 
+// OK: перенесено - service/storage/service.go (SetAnswerMessageId)
 func setAnswerMessageId(dstChatId, tmpMessageId int64, fromChatMessageId string) {
 	key := []byte(fmt.Sprintf("%s:%d:%d", answerMessageIdPrefix, dstChatId, tmpMessageId))
 	val := []byte(fromChatMessageId)
 	setForDB(key, val)
 }
 
+// OK: перенесено - service/storage/service.go (GetAnswerMessageId)
 func getAnswerMessageId(dstChatId, tmpMessageId int64) string {
 	key := []byte(fmt.Sprintf("%s:%d:%d", answerMessageIdPrefix, dstChatId, tmpMessageId))
 	val := getForDB(key)
 	return string(val)
 }
 
+// OK: перенесено - service/storage/service.go (DeleteAnswerMessageId)
 func deleteAnswerMessageId(dstChatId, tmpMessageId int64) {
 	key := []byte(fmt.Sprintf("%s:%d:%d", answerMessageIdPrefix, dstChatId, tmpMessageId))
 	deleteForDB(key)
 }
 
+// OK: перенесено - service/transform/service.go (addAutoAnswer)
 func addAutoAnswer(formattedText *client.FormattedText, src *client.Message) {
 	if configAnswer, ok := configData.Answers[src.ChatId]; ok && configAnswer.Auto {
 		if data, ok := getReplyMarkupData(src); ok {
@@ -1779,7 +1866,7 @@ func addAutoAnswer(formattedText *client.FormattedText, src *client.Message) {
 				if err != nil {
 					log.Print("ParseTextEntities > ", err)
 				} else {
-					offset := int32(utils.StrLen(formattedText.Text))
+					offset := int32(strLenForUTF16(formattedText.Text))
 					if offset > 0 {
 						formattedText.Text += "\n\n"
 						offset = offset + 2
@@ -1796,6 +1883,7 @@ func addAutoAnswer(formattedText *client.FormattedText, src *client.Message) {
 	}
 }
 
+// OK: перенесено - service/transform/service.go (addSources)
 func addSourceSign(formattedText *client.FormattedText, title string) {
 	sourceSign, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
 		Text: title,
@@ -1806,7 +1894,7 @@ func addSourceSign(formattedText *client.FormattedText, title string) {
 	if err != nil {
 		log.Print("ParseTextEntities > ", err)
 	} else {
-		offset := int32(utils.StrLen(formattedText.Text))
+		offset := int32(strLenForUTF16(formattedText.Text))
 		if offset > 0 {
 			formattedText.Text += "\n\n"
 			offset = offset + 2
@@ -1820,6 +1908,7 @@ func addSourceSign(formattedText *client.FormattedText, title string) {
 	log.Printf("addSourceSign > %#v", formattedText)
 }
 
+// OK: перенесено - service/transform/service.go (addSources)
 func addSourceLink(message *client.Message, formattedText *client.FormattedText, title string) {
 	messageLink, err := tdlibClient.GetMessageLink(&client.GetMessageLinkRequest{
 		ChatId:     message.ChatId,
@@ -1840,7 +1929,7 @@ func addSourceLink(message *client.Message, formattedText *client.FormattedText,
 			log.Print("ParseTextEntities > ", err)
 		} else {
 			// TODO: тут упало на опросе https://t.me/Full_Time_Trading/40922
-			offset := int32(utils.StrLen(formattedText.Text))
+			offset := int32(strLenForUTF16(formattedText.Text))
 			if offset > 0 {
 				formattedText.Text += "\n\n"
 				offset = offset + 2
@@ -1855,6 +1944,7 @@ func addSourceLink(message *client.Message, formattedText *client.FormattedText,
 	log.Printf("addSourceLink > %#v", formattedText)
 }
 
+// OK: перенесено - service/message/service.go (GetInputMessageContent)
 func getInputMessageContent(messageContent client.MessageContent, formattedText *client.FormattedText, contentMode ContentMode) client.InputMessageContent {
 	switch contentMode {
 	case ContentModeText:
@@ -1950,6 +2040,7 @@ func getInputMessageContent(messageContent client.MessageContent, formattedText 
 	return nil
 }
 
+// OK: перенесено - service/transform/service.go (replaceMyselfLinks)
 func replaceMyselfLinks(formattedText *client.FormattedText, srcChatId, dstChatId int64) {
 	if data, ok := configData.ReplaceMyselfLinks[dstChatId]; ok {
 		log.Printf("replaceMyselfLinks > srcChatId: %d dstChatId: %d", srcChatId, dstChatId)
@@ -1997,11 +2088,13 @@ func replaceMyselfLinks(formattedText *client.FormattedText, srcChatId, dstChatI
 	}
 }
 
+// OK: перенесено - util/primitive.go (Copy)
 func copyFormattedText(formattedText *client.FormattedText) *client.FormattedText {
 	result := *formattedText
 	return &result
 }
 
+// OK: перенесено - service/transform/service.go (escapeMarkdown)
 func escapeAll(s string) string {
 	// эскейпит все символы: которые нужны для markdown-разметки
 	a := []string{
@@ -2028,6 +2121,7 @@ func escapeAll(s string) string {
 	return re.ReplaceAllString(s, `\$0`)
 }
 
+// OK: перенесено - service/transform/service.go (AddSources)
 func addSources(formattedText *client.FormattedText, src *client.Message, dstChatId int64) {
 	if source, ok := configData.Sources[src.ChatId]; ok {
 		if containsInt64(source.Sign.For, dstChatId) {
@@ -2038,6 +2132,7 @@ func addSources(formattedText *client.FormattedText, src *client.Message, dstCha
 	}
 }
 
+// НЕТ: не перенесено - service/transform/service.go (resetEntities)
 // func resetEntities(formattedText *client.FormattedText, dstChatId int64) {
 //	// withResetEntities := containsInt64(configData.ResetEntities, dstChatId)
 // 	if result, err := tdlibClient.ParseTextEntities(&client.ParseTextEntitiesRequest{
@@ -2052,6 +2147,7 @@ func addSources(formattedText *client.FormattedText, src *client.Message, dstCha
 // 	}
 // }
 
+// OK: перенесено - service/transform/service.go (replaceFragments)
 func replaceFragments(formattedText *client.FormattedText, dstChatId int64) {
 	if data, ok := configData.ReplaceFragments[dstChatId]; ok {
 		isReplaced := false
@@ -2060,9 +2156,9 @@ func replaceFragments(formattedText *client.FormattedText, dstChatId int64) {
 			if re.FindString(formattedText.Text) != "" {
 				isReplaced = true
 				// вынес в конфиг
-				// if utils.StrLen(from) != utils.StrLen(to) {
-				// 	log.Print("error: utils.StrLen(from) != utils.StrLen(to)")
-				// 	to = strings.Repeat(".", utils.StrLen(from))
+				// if strLenForUTF16(from) != strLenForUTF16(to) {
+				// 	log.Print("error: strLenForUTF16(from) != strLenForUTF16(to)")
+				// 	to = strings.Repeat(".", strLenForUTF16(from))
 				// }
 				formattedText.Text = re.ReplaceAllString(formattedText.Text, to)
 			}
@@ -2073,6 +2169,7 @@ func replaceFragments(formattedText *client.FormattedText, dstChatId int64) {
 	}
 }
 
+// НЕТ: не перенесено - service/transform/service.go (replaceFragments2)
 // func replaceFragments2(formattedText *client.FormattedText, dstChatId int64) {
 // 	if replaceFragments, ok := configData.ReplaceFragments[dstChatId]; ok {
 // 		// TODO: нужно реализовать свою версию GetMarkdownText,
@@ -2106,3 +2203,8 @@ func replaceFragments(formattedText *client.FormattedText, dstChatId int64) {
 // 		}
 // 	}
 // }
+
+// OK: перенесено - util/primitive.go (RuneCountForUTF16)
+func strLenForUTF16(s string) int {
+	return len(utf16.Encode([]rune(s)))
+}
